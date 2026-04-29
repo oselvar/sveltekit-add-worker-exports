@@ -13,7 +13,9 @@
 			"require": "./dist/index.cjs"
 		}
 	},
-	"files": ["dist"],
+	"files": [
+		"dist"
+	],
 	"license": "MIT",
 	"repository": {
 		"type": "git",
@@ -43,5 +45,8 @@
 	"scripts": {
 		"build": "tsup",
 		"prepublishOnly": "tsup"
+	},
+	"dependencies": {
+		"jsonc-parser": "^3.3.1"
 	}
 }

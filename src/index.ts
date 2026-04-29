@@ -18,8 +18,9 @@
  */
 
 import { build } from 'esbuild';
-import { access, rename, writeFile, unlink } from 'node:fs/promises';
+import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { parse as parseJsonc } from 'jsonc-parser';
 import type { Plugin } from 'vite';
 
 const DEFAULT_DEV_PORT = 8787;
@@ -121,24 +122,15 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				options.wranglerConfig ? { config: options.wranglerConfig } : {}
 			);
 
-			// Write a temp config with main overridden to the source entry point
-			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
-			const devConfig: Record<string, unknown> = {
-				name: `${wranglerConfig.name ?? 'sveltekit'}-dev-worker`,
-				compatibility_date: wranglerConfig.compatibility_date,
-				main: options.entryPoint,
-				dev: { port: devPort }
-			};
-			if (wranglerConfig.compatibility_flags?.length) {
-				devConfig.compatibility_flags = wranglerConfig.compatibility_flags;
-			}
-			if (wranglerConfig.durable_objects) {
-				devConfig.durable_objects = wranglerConfig.durable_objects;
-			}
-			if (wranglerConfig.migrations?.length) {
-				devConfig.migrations = wranglerConfig.migrations;
-			}
+			// Copy the raw config and override main, name, and dev port
+			const rawJson = await readFile(wranglerConfig.configPath!, 'utf-8');
+			const devConfig = parseJsonc(rawJson);
+			devConfig.name = `${devConfig.name ?? 'sveltekit'}-dev-worker`;
+			devConfig.main = options.entryPoint;
+			devConfig.dev = { ...devConfig.dev, port: devPort };
+			delete devConfig.assets;
 
+			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
 			await writeFile(tempConfigPath, JSON.stringify(devConfig, null, '\t'));
 
 			worker = await unstable_startWorker({ config: tempConfigPath });
