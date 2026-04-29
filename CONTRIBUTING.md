@@ -21,10 +21,7 @@ pnpm install
 pnpm build
 ```
 
-This runs [tsup](https://tsup.egoist.dev/) to produce:
-- `dist/index.js` (ESM)
-- `dist/index.cjs` (CJS)
-- `dist/index.d.ts` / `dist/index.d.cts` (type declarations)
+This runs `tsc` to produce `dist/index.js` (ESM) and `dist/index.d.ts` (type declarations).
 
 ### Testing locally
 
@@ -60,9 +57,10 @@ The package exports a single function `addWorkerExports()` that returns two Vite
 
 ## Releasing
 
-1. Update the version in `package.json`
-2. Build: `pnpm build`
-3. Commit: `git commit -am "vX.Y.Z"`
-4. Tag: `git tag vX.Y.Z`
-5. Publish: `pnpm publish --access public`
-6. Push: `git push && git push --tags`
+We use [np](https://github.com/sindresorhus/np) for releases:
+
+```bash
+npx np
+```
+
+This handles version bumping, building (via `prepublishOnly`), publishing to npm, git tagging, and pushing.

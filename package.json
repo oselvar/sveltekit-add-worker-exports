@@ -3,14 +3,10 @@
 	"version": "0.1.0",
 	"description": "Vite plugin that adds Durable Object and Workflow exports to SvelteKit Cloudflare workers",
 	"type": "module",
-	"main": "dist/index.cjs",
-	"module": "dist/index.js",
-	"types": "dist/index.d.ts",
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
+			"import": "./dist/index.js"
 		}
 	},
 	"files": [
@@ -37,14 +33,14 @@
 	"devDependencies": {
 		"@types/node": "^22.0.0",
 		"esbuild": "^0.25.0",
-		"tsup": "^8.0.0",
+		"np": "^11.2.0",
 		"typescript": "^5.0.0",
 		"vite": "^6.0.0",
 		"wrangler": "^4.84.0"
 	},
 	"scripts": {
-		"build": "tsup",
-		"prepublishOnly": "tsup"
+		"build": "tsc",
+		"prepublishOnly": "tsc"
 	},
 	"dependencies": {
 		"jsonc-parser": "^3.3.1"
