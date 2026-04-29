@@ -40,6 +40,7 @@
 	},
 	"scripts": {
 		"build": "tsc",
+		"test": "tsc --noEmit",
 		"prepublishOnly": "tsc"
 	},
 	"dependencies": {
