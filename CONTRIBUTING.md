@@ -28,14 +28,22 @@ This runs [tsup](https://tsup.egoist.dev/) to produce:
 
 ### Testing locally
 
-To test against a local SvelteKit project, import from the dist output:
+Link the package into a local SvelteKit project:
 
-```typescript
-// vite.config.ts in your test project
-import { addWorkerExports } from '../sveltekit-add-worker-exports/dist/index.js';
+```bash
+# In this repo
+pnpm link --global
+
+# In your test project
+pnpm link --global @oselvar/sveltekit-add-worker-exports
 ```
 
-Run `pnpm build` in this repo after every change, then restart `pnpm dev` in the test project.
+Then rebuild after each change:
+
+```bash
+pnpm build
+# Restart pnpm dev in the test project
+```
 
 ## Architecture
 
@@ -48,7 +56,7 @@ The package exports a single function `addWorkerExports()` that returns two Vite
 ### Dependencies
 
 - `esbuild`, `vite`, and `wrangler` are **peer dependencies** (the consuming SvelteKit project provides them)
-- `jsonc-parser` is bundled into the dist (via tsup `noExternal`) so it works without being installed in the consuming project
+- `jsonc-parser` is a regular **dependency** (installed alongside the package)
 
 ## Releasing
 
