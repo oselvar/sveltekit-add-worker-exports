@@ -1,6 +1,6 @@
 {
 	"name": "@oselvar/sveltekit-add-worker-exports",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Vite plugin that adds Durable Object and Workflow exports to SvelteKit Cloudflare workers",
 	"type": "module",
 	"publishConfig": {
