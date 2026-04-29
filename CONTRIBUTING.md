@@ -60,7 +60,7 @@ The package exports a single function `addWorkerExports()` that returns two Vite
 We use [np](https://github.com/sindresorhus/np) for releases:
 
 ```bash
-pnpx np
+npx np
 ```
 
 This handles version bumping, building (via `prepublishOnly`), publishing to npm, git tagging, and pushing.
