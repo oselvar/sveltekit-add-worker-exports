@@ -16,15 +16,18 @@ pnpm add -D @oselvar/sveltekit-add-worker-exports
 
 ## Usage
 
-Create a file that exports your Durable Object and/or Workflow classes:
+Create a worker entry point that exports your Durable Object classes and a default fetch handler. The fetch handler is only used by the wrangler dev server — in production, SvelteKit's route handlers handle all requests.
 
 ```typescript
 // src/lib/server/index.ts
 export { MyDurableObject } from './MyDurableObject';
+export { default } from './devHandler';
+```
 
+```typescript
+// src/lib/server/devHandler.ts
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Route WebSocket upgrades to Durable Objects (used during dev)
     const url = new URL(request.url);
     const match = url.pathname.match(/^\/ws\/(.+)$/);
     if (match && request.headers.get('Upgrade') === 'websocket') {
@@ -111,6 +114,29 @@ The plugin reads your wrangler config, creates a temporary config with `main` po
 - Real workerd runtime (not emulated)
 - Hot-reload when you change DO code
 - Same WebSocket protocol as production
+- Fully typed Durable Object bindings (see below)
+
+### Generating typed bindings
+
+The dev plugin creates a temporary `.dev-worker-wrangler.jsonc` with `main` pointing to your source entry point. You can use this to generate fully generic Cloudflare types:
+
+```bash
+wrangler types --config .dev-worker-wrangler.jsonc
+```
+
+This produces typed DO bindings like `DurableObjectNamespace<MyDurableObject>` instead of the untyped `DurableObjectNamespace` you get from the default `wrangler.jsonc` (whose `main` points to the SvelteKit build output, which doesn't exist during dev).
+
+Add this to your `package.json` scripts for convenience:
+
+```json
+{
+  "scripts": {
+    "types": "wrangler types --config .dev-worker-wrangler.jsonc"
+  }
+}
+```
+
+Note: the `.dev-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`.
 
 ## Why this exists
 
