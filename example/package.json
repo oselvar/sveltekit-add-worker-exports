@@ -4,7 +4,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build"
+		"build": "vite build",
+		"types": "wrangler types --config .dev-worker-wrangler.jsonc"
 	},
 	"devDependencies": {
 		"@oselvar/sveltekit-add-worker-exports": "workspace:*",
