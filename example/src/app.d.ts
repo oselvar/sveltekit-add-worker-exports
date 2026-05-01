@@ -1,3 +1,5 @@
+/// <reference path="../worker-configuration.d.ts" />
+
 declare global {
 	const __DEV_WORKER_PORT__: number;
 

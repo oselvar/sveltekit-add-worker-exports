@@ -37,7 +37,12 @@
 <h1>Echo Chat</h1>
 <p>{connected ? 'Connected' : 'Connecting...'}</p>
 
-<form onsubmit={(e) => { e.preventDefault(); send(); }}>
+<form
+	onsubmit={(e) => {
+		e.preventDefault();
+		send();
+	}}
+>
 	<input bind:value={input} placeholder="Type a message..." />
 	<button type="submit" disabled={!connected}>Send</button>
 </form>

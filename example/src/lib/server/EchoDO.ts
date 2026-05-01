@@ -11,7 +11,7 @@ export class EchoDO extends DurableObject<Env> {
 		return new Response(null, { status: 101, webSocket: pair[0] });
 	}
 
-	async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+	async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
 		// Broadcast to all connected clients
 		for (const client of this.ctx.getWebSockets()) {
 			client.send(message);

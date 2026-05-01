@@ -24,20 +24,50 @@ export { MyDurableObject } from './MyDurableObject';
 export { default } from './devHandler';
 ```
 
+Both the dev handler and the production SvelteKit route need to do the same thing: validate the upgrade header and forward the request to a Durable Object. Extract that into a small helper so the two callers stay in sync:
+
+```typescript
+// src/lib/server/forwardWebSocket.ts
+export async function forwardWebSocket<T extends Rpc.DurableObjectBranded | undefined>(
+  request: Request,
+  namespace: DurableObjectNamespace<T>,
+  name: string
+): Promise<Response> {
+  if (request.headers.get('upgrade') !== 'websocket') {
+    return new Response('Expected WebSocket', { status: 426 });
+  }
+  const id = namespace.idFromName(name);
+  return namespace.get(id).fetch(request);
+}
+```
+
+The dev handler parses the URL and delegates. It's only used by the wrangler dev sidecar:
+
 ```typescript
 // src/lib/server/devHandler.ts
+import { forwardWebSocket } from './forwardWebSocket';
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const match = url.pathname.match(/^\/ws\/(.+)$/);
-    if (match && request.headers.get('Upgrade') === 'websocket') {
-      const id = env.MY_DO.idFromName(match[1]);
-      return env.MY_DO.get(id).fetch(request);
-    }
-    return new Response('Not found', { status: 404 });
+    const match = new URL(request.url).pathname.match(/^\/ws\/(.+)$/);
+    if (!match) return new Response('Not found', { status: 404 });
+    return forwardWebSocket(request, env.MY_DO, match[1]);
   }
 };
 ```
+
+In production, the dev handler is *not* used — SvelteKit serves the same path through a `+server.ts` route, which delegates to the same helper:
+
+```typescript
+// src/routes/ws/[id]/+server.ts
+import { forwardWebSocket } from '$lib/server/forwardWebSocket';
+import type { RequestHandler } from './$types';
+
+export const GET: RequestHandler = ({ params, request, platform }) =>
+  forwardWebSocket(request, platform!.env.MY_DO, params.id);
+```
+
+Now any change to the upgrade-and-forward logic (auth, rate-limiting, response shape) lives in one place and applies to both dev and production.
 
 Add the plugin to your `vite.config.ts` **after** `sveltekit()`:
 
@@ -80,6 +110,29 @@ declare global {
 ```
 
 The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads DO bindings, migrations, and compatibility settings from it. It overrides only the `main` entry point to use your source file instead of the SvelteKit build output.
+
+### Testing the production build locally
+
+`vite dev` exercises the dev handler via the wrangler-dev sidecar; it does *not* exercise your `+server.ts` route or the merged `_worker.js`. To verify the production wiring (named DO exports + SvelteKit routes in the same worker), run wrangler against the build output:
+
+```bash
+pnpm build              # produces .svelte-kit/cloudflare/_worker.js with merged exports
+pnpm wrangler dev       # uses wrangler.jsonc → main: .svelte-kit/cloudflare/_worker.js
+```
+
+This serves the exact bundle that gets deployed, with local Durable Object storage. Connect a WebSocket client to `ws://localhost:8787/ws/<id>` and confirm you get a `101 Switching Protocols` response — that proves the request flowed through the SvelteKit `+server.ts` and into your DO.
+
+A handy shortcut is to add a `preview` script to `package.json`:
+
+```json
+{
+  "scripts": {
+    "preview": "wrangler dev"
+  }
+}
+```
+
+> Note: `vite preview` is *not* suitable here — it only serves static assets and cannot run Durable Objects. Always use `wrangler dev` to preview the production worker.
 
 ## Options
 

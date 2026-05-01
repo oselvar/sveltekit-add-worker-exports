@@ -1,0 +1,6 @@
+node_modules
+.svelte-kit
+.wrangler
+.dev-worker-wrangler.jsonc
+worker-configuration.d.ts
+pnpm-lock.yaml
