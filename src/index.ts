@@ -101,6 +101,7 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 	const devPort = options.devPort ?? DEFAULT_DEV_PORT;
 	let worker: { dispose: () => Promise<void> } | null = null;
 	let tempConfigPath: string | null = null;
+	let proxyConfigPath: string | null = null;
 
 	return {
 		name: 'add-worker-exports-dev',
@@ -133,6 +134,25 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
 			await writeFile(tempConfigPath, JSON.stringify(devConfig, null, '\t'));
 
+			// Also write a wrangler config for adapter-cloudflare's getPlatformProxy
+			// (used by vite dev for platform.env). It can't run internal DOs or
+			// Workflows -- those are served by the sidecar above. Strip them so it
+			// doesn't emit warnings about classes it can't load.
+			const proxyConfig = parseJsonc(rawJson);
+			if (proxyConfig.durable_objects?.bindings) {
+				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.filter(
+					(b: { script_name?: string }) => b.script_name
+				);
+				if (proxyConfig.durable_objects.bindings.length === 0) {
+					delete proxyConfig.durable_objects;
+				}
+			}
+			delete proxyConfig.workflows;
+			delete proxyConfig.migrations;
+
+			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
+			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
+
 			worker = await unstable_startWorker({ config: tempConfigPath });
 
 			server.httpServer?.on('close', async () => {
@@ -142,6 +162,9 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				}
 				if (tempConfigPath) {
 					await unlink(tempConfigPath).catch(() => {});
+				}
+				if (proxyConfigPath) {
+					await unlink(proxyConfigPath).catch(() => {});
 				}
 			});
 		}

@@ -87,6 +87,23 @@ export default defineConfig({
 });
 ```
 
+Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wrangler.jsonc`. This is a copy of your wrangler config with internal Durable Object bindings, Workflows, and migrations stripped — those are served by the dev sidecar on a separate port, and `getPlatformProxy` would otherwise log warnings about classes it can't load:
+
+```javascript
+// svelte.config.js
+import adapter from '@sveltejs/adapter-cloudflare';
+
+export default {
+  kit: {
+    adapter: adapter({
+      platformProxy: {
+        configPath: '.platform-proxy-wrangler.jsonc'
+      }
+    })
+  }
+};
+```
+
 ### Dev mode: connecting to Durable Objects
 
 In dev mode, the plugin starts a wrangler dev server on a separate port and injects `__DEV_WORKER_PORT__` as a compile-time constant. Use it to connect your client:
