@@ -21,8 +21,11 @@ Create a worker entry point that exports your Durable Object classes and a defau
 ```typescript
 // src/lib/server/index.ts
 export { MyDurableObject } from './MyDurableObject';
+export { MyWorkflow } from './MyWorkflow';
 export { default } from './devHandler';
 ```
+
+Workflow classes (extending `WorkflowEntrypoint`) are exported the same way as Durable Objects — the plugin merges them into `_worker.js` as named exports. Declare them in `wrangler.jsonc` under `workflows`, and they become available as bindings (e.g. `env.MY_WORKFLOW.create({ params })`) in both dev and production.
 
 Both the dev handler and the production SvelteKit route need to do the same thing: validate the upgrade header and forward the request to a Durable Object. Extract that into a small helper so the two callers stay in sync:
 

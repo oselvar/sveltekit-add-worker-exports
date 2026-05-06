@@ -16,6 +16,13 @@
 			}
 		]
 	},
+	"workflows": [
+		{
+			"name": "bot-workflow",
+			"binding": "BOT_WORKFLOW",
+			"class_name": "BotWorkflow"
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",
