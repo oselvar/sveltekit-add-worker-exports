@@ -4,7 +4,7 @@ A Vite plugin that makes Durable Objects and Workflows work with SvelteKit on Cl
 
 **Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires Durable Object and Workflow classes to be **named exports**. This plugin post-processes the build output to merge your named exports with SvelteKit's default export.
 
-**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects. This plugin starts a separate wrangler dev server that runs the real DO worker with hot-reload. Clients connect directly to it via WebSocket on a separate port.
+**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects or Workflows. This plugin starts a separate wrangler dev server that runs the real DO/Workflow worker with hot-reload. SvelteKit `+server.ts` handlers call DOs through `platform.env.MY_DO.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. Clients can also connect directly to the sidecar via WebSocket on a separate port (see below).
 
 ## Install
 
@@ -87,7 +87,7 @@ export default defineConfig({
 });
 ```
 
-Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wrangler.jsonc`. This is a copy of your wrangler config with internal Durable Object bindings, Workflows, and migrations stripped — those are served by the dev sidecar on a separate port, and `getPlatformProxy` would otherwise log warnings about classes it can't load:
+Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wrangler.jsonc`. The plugin writes this file with internal Durable Object bindings rewritten to cross-worker form (each gets a `script_name` pointing at the sidecar). Workflows and migrations are stripped — calling a Workflow from `platform.env` in vite dev isn't supported, but it works in production. Without this config path, `getPlatformProxy` would try to run the classes itself and warn that it can't:
 
 ```javascript
 // svelte.config.js

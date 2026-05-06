@@ -18,12 +18,40 @@
  */
 
 import { build } from 'esbuild';
+import { existsSync } from 'node:fs';
 import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import type { Plugin } from 'vite';
 
 const DEFAULT_DEV_PORT = 8787;
+
+/**
+ * Mirrors wrangler's internal getRegistryPath() — wrangler doesn't export it.
+ * Workers register themselves under this path so cross-worker `script_name`
+ * bindings can find each other.
+ */
+function getWranglerRegistryPath(): string {
+	if (process.env.WRANGLER_REGISTRY_PATH) return process.env.WRANGLER_REGISTRY_PATH;
+	const legacy = join(homedir(), '.wrangler');
+	if (existsSync(legacy)) return join(legacy, 'registry');
+	if (process.platform === 'darwin') {
+		return join(homedir(), 'Library', 'Preferences', '.wrangler', 'registry');
+	}
+	if (process.platform === 'win32') {
+		return join(
+			process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'),
+			'.wrangler',
+			'registry'
+		);
+	}
+	return join(
+		process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'),
+		'.wrangler',
+		'registry'
+	);
+}
 
 export interface AddWorkerExportsOptions {
 	/** File that exports Durable Object and/or Workflow classes */
@@ -136,16 +164,17 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 
 			// Also write a wrangler config for adapter-cloudflare's getPlatformProxy
 			// (used by vite dev for platform.env). It can't run internal DOs or
-			// Workflows -- those are served by the sidecar above. Strip them so it
-			// doesn't emit warnings about classes it can't load.
+			// Workflows itself -- those are served by the sidecar above. Rewrite
+			// internal DO bindings as cross-worker bindings (script_name pointing
+			// at the sidecar) so platform.env.MY_DO calls in +server.ts reach the
+			// sidecar via the wrangler dev registry. Workflows and migrations get
+			// stripped (Workflow bindings have no script_name equivalent).
 			const proxyConfig = parseJsonc(rawJson);
 			if (proxyConfig.durable_objects?.bindings) {
-				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.filter(
-					(b: { script_name?: string }) => b.script_name
+				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.map(
+					(b: { script_name?: string }) =>
+						b.script_name ? b : { ...b, script_name: devConfig.name }
 				);
-				if (proxyConfig.durable_objects.bindings.length === 0) {
-					delete proxyConfig.durable_objects;
-				}
 			}
 			delete proxyConfig.workflows;
 			delete proxyConfig.migrations;
@@ -153,7 +182,10 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
 			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
 
-			worker = await unstable_startWorker({ config: tempConfigPath });
+			worker = await unstable_startWorker({
+				config: tempConfigPath,
+				dev: { registry: getWranglerRegistryPath() }
+			});
 
 			server.httpServer?.on('close', async () => {
 				if (worker) {
