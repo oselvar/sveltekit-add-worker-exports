@@ -19,14 +19,17 @@
 
 import { build } from 'esbuild';
 import { existsSync } from 'node:fs';
-import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import type { NodeJSCompatMode } from 'miniflare';
 import type { Plugin } from 'vite';
 
 const DEFAULT_DEV_PORT = 8787;
+const BRIDGE_BINDING = '__SWE_BRIDGE';
+const CACHE_DIR_REL = 'node_modules/.cache/sveltekit-add-worker-exports';
+const WRAPPER_FILENAME = 'dev-worker-entry.ts';
 
 /**
  * Mirrors wrangler's internal getRegistryPath() — wrangler doesn't export it.
@@ -131,6 +134,21 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 	let worker: { dispose: () => Promise<void> } | null = null;
 	let tempConfigPath: string | null = null;
 	let proxyConfigPath: string | null = null;
+	let typesConfigPath: string | null = null;
+	let wrapperPath: string | null = null;
+
+	let cached: { rawJson: string; workflowBindings: string[] } | null = null;
+	async function readConfig() {
+		if (cached) return cached;
+		const { unstable_readConfig } = await import('wrangler');
+		const parsed = unstable_readConfig(
+			options.wranglerConfig ? { config: options.wranglerConfig } : {}
+		);
+		const rawJson = await readFile(parsed.configPath!, 'utf-8');
+		const workflowBindings = (parsed.workflows ?? []).map((w: { binding: string }) => w.binding);
+		cached = { rawJson, workflowBindings };
+		return cached;
+	}
 
 	return {
 		name: 'add-worker-exports-dev',
@@ -145,31 +163,54 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 		},
 
 		async configureServer(server) {
-			const { unstable_readConfig, unstable_startWorker } = await import('wrangler');
+			const { unstable_startWorker } = await import('wrangler');
+			const { rawJson, workflowBindings } = await readConfig();
 
-			// Read the project's wrangler config (auto-discovers wrangler.jsonc/toml)
-			const wranglerConfig = unstable_readConfig(
-				options.wranglerConfig ? { config: options.wranglerConfig } : {}
-			);
+			// The hook reads these from globalThis. We can't use vite's `define`
+			// because dist/hooks.js lives in node_modules and vite doesn't
+			// transform external modules in SSR by default — substitutions
+			// would never apply.
+			(globalThis as Record<string, unknown>).__SWE_BRIDGE_NAME__ = BRIDGE_BINDING;
+			(globalThis as Record<string, unknown>).__SWE_WORKFLOWS__ = workflowBindings;
+
+			// Generate a sidecar wrapper entry that re-exports the user's classes
+			// and adds /__swe/wf/* HTTP routes used by the SvelteKit-side hook to
+			// proxy workflow API calls into the sidecar (which has the real
+			// workflow bindings).
+			const cacheDir = resolve(CACHE_DIR_REL);
+			await mkdir(cacheDir, { recursive: true });
+			wrapperPath = join(cacheDir, WRAPPER_FILENAME);
+			const userEntryAbs = resolve(options.entryPoint);
+			const userEntryRel = relative(dirname(wrapperPath), userEntryAbs)
+				.replace(/\\/g, '/')
+				.replace(/\.(ts|tsx|js|jsx|mjs|mts)$/, '');
+			await writeFile(wrapperPath, generateWrapperSource(userEntryRel, workflowBindings));
 
 			// Copy the raw config and override main, name, and dev port
-			const rawJson = await readFile(wranglerConfig.configPath!, 'utf-8');
 			const devConfig = parseJsonc(rawJson);
 			devConfig.name = `${devConfig.name ?? 'sveltekit'}-dev-worker`;
-			devConfig.main = options.entryPoint;
+			devConfig.main = wrapperPath;
 			devConfig.dev = { ...devConfig.dev, port: devPort };
 			delete devConfig.assets;
 
 			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
 			await writeFile(tempConfigPath, JSON.stringify(devConfig, null, '\t'));
 
-			// Also write a wrangler config for adapter-cloudflare's getPlatformProxy
+			// Write a wrangler config for adapter-cloudflare's getPlatformProxy
 			// (used by vite dev for platform.env). It can't run internal DOs or
 			// Workflows itself -- those are served by the sidecar above. Rewrite
 			// internal DO bindings as cross-worker bindings (script_name pointing
 			// at the sidecar) so platform.env.MY_DO calls in +server.ts reach the
-			// sidecar via the wrangler dev registry. Workflows and migrations get
-			// stripped (Workflow bindings have no script_name equivalent).
+			// sidecar via the wrangler dev registry.
+			//
+			// Workflows are different: wrangler's getPlatformProxy unconditionally
+			// deletes workflow bindings from the env (see
+			// getMiniflareOptionsFromConfig in wrangler), even when they have a
+			// script_name. We strip them here and add a cross-worker service
+			// binding (BRIDGE_BINDING) pointing at the sidecar; the
+			// `hooks.server.ts` handle exported from this package synthesizes
+			// Workflow-shaped objects on platform.env that proxy API calls
+			// through that service binding into the sidecar's /__swe/wf/* routes.
 			const proxyConfig = parseJsonc(rawJson);
 			if (proxyConfig.durable_objects?.bindings) {
 				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.map(
@@ -177,11 +218,31 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 						b.script_name ? b : { ...b, script_name: devConfig.name }
 				);
 			}
+			if (workflowBindings.length > 0) {
+				proxyConfig.services = [
+					...(proxyConfig.services ?? []),
+					{ binding: BRIDGE_BINDING, service: devConfig.name }
+				];
+			}
 			delete proxyConfig.workflows;
 			delete proxyConfig.migrations;
 
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
 			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
+
+			// A third config used only by `wrangler types`. Identical to the dev
+			// config except `main` points at the user's source entry, so wrangler
+			// can resolve typed bindings (DurableObjectNamespace<EchoDO>, etc.).
+			// Pointing types at our generated wrapper produces untyped bindings
+			// because wrangler's type resolver doesn't follow `export *` re-exports
+			// out of node_modules.
+			const typesConfig = parseJsonc(rawJson);
+			typesConfig.name = devConfig.name;
+			typesConfig.main = options.entryPoint;
+			typesConfig.dev = { ...typesConfig.dev, port: devPort };
+			delete typesConfig.assets;
+			typesConfigPath = resolve('.types-worker-wrangler.jsonc');
+			await writeFile(typesConfigPath, JSON.stringify(typesConfig, null, '\t'));
 
 			worker = await unstable_startWorker({
 				config: tempConfigPath,
@@ -206,9 +267,85 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				if (proxyConfigPath) {
 					await unlink(proxyConfigPath).catch(() => {});
 				}
+				if (typesConfigPath) {
+					await unlink(typesConfigPath).catch(() => {});
+				}
+				if (wrapperPath) {
+					await unlink(wrapperPath).catch(() => {});
+				}
 			});
 		}
 	};
+}
+
+function generateWrapperSource(userEntryRel: string, workflowBindings: string[]): string {
+	const importPath = JSON.stringify(userEntryRel);
+	const bindingList = JSON.stringify(workflowBindings);
+	return `// Auto-generated by @oselvar/sveltekit-add-worker-exports.
+// Bridges Workflow bindings to SvelteKit dev. Do not edit.
+import * as user from ${importPath};
+export * from ${importPath};
+
+const userDefault: any = (user as any).default;
+const WORKFLOW_BINDINGS = new Set<string>(${bindingList});
+
+export default {
+\tasync fetch(request: Request, env: any, ctx: any): Promise<Response> {
+\t\tconst url = new URL(request.url);
+\t\tif (url.pathname.startsWith('/__swe/wf/')) {
+\t\t\treturn handleWf(url.pathname.slice('/__swe/wf/'.length), request, env);
+\t\t}
+\t\tif (userDefault?.fetch) return userDefault.fetch(request, env, ctx);
+\t\treturn new Response('Not found', { status: 404 });
+\t}
+};
+
+async function handleWf(rest: string, request: Request, env: any): Promise<Response> {
+\tconst parts = rest.split('/').map(decodeURIComponent);
+\tconst [binding, op, ...tail] = parts;
+\tif (!binding || !WORKFLOW_BINDINGS.has(binding)) {
+\t\treturn new Response('unknown workflow binding: ' + binding, { status: 404 });
+\t}
+\tconst wf = env[binding];
+\tif (!wf) return new Response('binding ' + binding + ' missing on sidecar', { status: 500 });
+\ttry {
+\t\tif (op === 'create' && request.method === 'POST') {
+\t\t\tconst opts = await request.json();
+\t\t\tconst inst = await wf.create(opts);
+\t\t\treturn Response.json({ id: inst.id });
+\t\t}
+\t\tif (op === 'createBatch' && request.method === 'POST') {
+\t\t\tconst batch = await request.json();
+\t\t\tconst insts = await wf.createBatch(batch);
+\t\t\treturn Response.json(insts.map((i: any) => ({ id: i.id })));
+\t\t}
+\t\tif (op === 'get' && tail.length === 1) {
+\t\t\tconst inst = await wf.get(tail[0]);
+\t\t\treturn Response.json({ id: inst.id });
+\t\t}
+\t\tif (op === 'instance' && tail.length === 2) {
+\t\t\tconst [id, method] = tail;
+\t\t\tconst inst = await wf.get(id);
+\t\t\tswitch (method) {
+\t\t\t\tcase 'pause': await inst.pause(); return new Response(null, { status: 204 });
+\t\t\t\tcase 'resume': await inst.resume(); return new Response(null, { status: 204 });
+\t\t\t\tcase 'terminate': await inst.terminate(); return new Response(null, { status: 204 });
+\t\t\t\tcase 'restart': await inst.restart(); return new Response(null, { status: 204 });
+\t\t\t\tcase 'status': return Response.json(await inst.status());
+\t\t\t\tcase 'sendEvent': {
+\t\t\t\t\tconst body = await request.json();
+\t\t\t\t\tawait inst.sendEvent(body);
+\t\t\t\t\treturn new Response(null, { status: 204 });
+\t\t\t\t}
+\t\t\t}
+\t\t\treturn new Response('unknown method: ' + method, { status: 404 });
+\t\t}
+\t\treturn new Response('unknown op: ' + op, { status: 404 });
+\t} catch (err: any) {
+\t\treturn new Response('error: ' + (err?.message ?? String(err)), { status: 500 });
+\t}
+}
+`;
 }
 
 async function exists(path: string): Promise<boolean> {

@@ -3,3 +3,4 @@ node_modules
 .wrangler
 .dev-worker-wrangler.jsonc
 .platform-proxy-wrangler.jsonc
+.types-worker-wrangler.jsonc

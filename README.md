@@ -87,7 +87,7 @@ export default defineConfig({
 });
 ```
 
-Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wrangler.jsonc`. The plugin writes this file with internal Durable Object bindings rewritten to cross-worker form (each gets a `script_name` pointing at the sidecar). Workflows and migrations are stripped — calling a Workflow from `platform.env` in vite dev isn't supported, but it works in production. Without this config path, `getPlatformProxy` would try to run the classes itself and warn that it can't:
+Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wrangler.jsonc`. The plugin writes this file with internal Durable Object bindings rewritten to cross-worker form (each gets a `script_name` pointing at the sidecar). Workflows can't survive `getPlatformProxy` (wrangler unconditionally deletes them), so the plugin replaces them with a service binding pointing at the sidecar; a small SvelteKit hook synthesizes the missing `Workflow` API on top of that bridge — see [Dev mode: calling Workflows](#dev-mode-calling-workflows) below. Without this config path, `getPlatformProxy` would try to run the DO classes itself and warn that it can't:
 
 ```javascript
 // svelte.config.js
@@ -129,7 +129,41 @@ declare global {
 }
 ```
 
-The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads DO bindings, migrations, and compatibility settings from it. It overrides only the `main` entry point to use your source file instead of the SvelteKit build output.
+The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads DO bindings, workflows, migrations, and compatibility settings from it. It overrides only the `main` entry point to use a generated wrapper (in `node_modules/.cache/sveltekit-add-worker-exports/`) that re-exports your classes and adds the workflow bridge routes.
+
+### Dev mode: calling Workflows
+
+Workflow bindings can't be passed through `getPlatformProxy` — wrangler unconditionally strips them ([source](https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/api/integrations/platform/index.ts)). The plugin works around this by adding a service binding to the sidecar and shipping a SvelteKit `Handle` that synthesizes `Workflow`-shaped objects on `platform.env`.
+
+Wire it up in `src/hooks.server.ts`:
+
+```typescript
+export { handle } from '@oselvar/sveltekit-add-worker-exports/hooks';
+```
+
+If you already have a `handle`, compose with `sequence`:
+
+```typescript
+import { sequence } from '@sveltejs/kit/hooks';
+import { handle as sweHandle } from '@oselvar/sveltekit-add-worker-exports/hooks';
+import { handle as myHandle } from './my-handle';
+
+export const handle = sequence(sweHandle, myHandle);
+```
+
+After that, `+server.ts` can call workflows the same way it does in production:
+
+```typescript
+export const POST: RequestHandler = async ({ params, request, platform }) => {
+  const userMessage = await request.text();
+  const instance = await platform!.env.MY_WORKFLOW.create({
+    params: { ... }
+  });
+  return new Response(instance.id);
+};
+```
+
+In production the hook is a no-op — it reads its config from runtime globals that only the dev plugin sets, and `platform.env.MY_WORKFLOW` is the real Cloudflare binding.
 
 ### Testing the production build locally
 
@@ -191,10 +225,10 @@ The plugin reads your wrangler config, creates a temporary config with `main` po
 
 ### Generating typed bindings
 
-The dev plugin creates a temporary `.dev-worker-wrangler.jsonc` with `main` pointing to your source entry point. You can use this to generate fully generic Cloudflare types:
+The dev plugin creates a temporary `.types-worker-wrangler.jsonc` with `main` pointing to your source entry point. Use it to generate fully generic Cloudflare types:
 
 ```bash
-wrangler types --config .dev-worker-wrangler.jsonc
+wrangler types --config .types-worker-wrangler.jsonc
 ```
 
 This produces typed DO bindings like `DurableObjectNamespace<MyDurableObject>` instead of the untyped `DurableObjectNamespace` you get from the default `wrangler.jsonc` (whose `main` points to the SvelteKit build output, which doesn't exist during dev).
@@ -204,12 +238,12 @@ Add this to your `package.json` scripts for convenience:
 ```json
 {
   "scripts": {
-    "types": "wrangler types --config .dev-worker-wrangler.jsonc"
+    "types": "wrangler types --config .types-worker-wrangler.jsonc"
   }
 }
 ```
 
-Note: the `.dev-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`.
+Note: the `.types-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`. (The plugin also writes `.dev-worker-wrangler.jsonc` for the runtime sidecar, but its `main` points at a generated bridge wrapper in `node_modules/.cache/`, which can't be used for type generation — wrangler doesn't follow `export *` re-exports out of node_modules.)
 
 ## Why this exists
 
