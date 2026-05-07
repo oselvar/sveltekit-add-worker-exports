@@ -23,6 +23,7 @@ import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
+import type { NodeJSCompatMode } from 'miniflare';
 import type { Plugin } from 'vite';
 
 const DEFAULT_DEV_PORT = 8787;
@@ -184,7 +185,14 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 
 			worker = await unstable_startWorker({
 				config: tempConfigPath,
-				dev: { registry: getWranglerRegistryPath() }
+				dev: { registry: getWranglerRegistryPath() },
+				build: {
+					nodejsCompatMode: (parsedConfig) =>
+						getNodejsCompatMode(
+							parsedConfig.compatibility_date,
+							parsedConfig.compatibility_flags
+						)
+				}
 			});
 
 			server.httpServer?.on('close', async () => {
@@ -210,4 +218,26 @@ async function exists(path: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Mirrors miniflare's `getNodeCompat` mode resolution. wrangler's
+ * `unstable_startWorker` does not derive this from the config flags
+ * automatically — without it, wrangler falls back to the legacy nodejs
+ * compat plugin and warns about `node:*` imports even when
+ * `nodejs_compat` is enabled.
+ */
+function getNodejsCompatMode(
+	compatibilityDate: string | undefined,
+	compatibilityFlags: readonly string[] = []
+): NodeJSCompatMode {
+	const hasCompat = compatibilityFlags.includes('nodejs_compat');
+	const hasCompatV2 = compatibilityFlags.includes('nodejs_compat_v2');
+	const hasNoCompatV2 = compatibilityFlags.includes('no_nodejs_compat_v2');
+	const hasAls = compatibilityFlags.includes('nodejs_als');
+	const date = compatibilityDate ?? '2000-01-01';
+	if (hasCompatV2 || (hasCompat && date >= '2024-09-23' && !hasNoCompatV2)) return 'v2';
+	if (hasCompat) return 'v1';
+	if (hasAls) return 'als';
+	return null;
 }
