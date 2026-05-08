@@ -11,6 +11,15 @@
  * server via `unstable_startWorker` that runs the real DO worker. Clients
  * connect directly to it via WebSocket on a separate port.
  *
+ * Workflows in dev are best-effort: if the installed wrangler/miniflare
+ * supports cross-worker workflow routing (cloudflare/workers-sdk#7459),
+ * `platform.env.MY_WORKFLOW.create(...)` works directly. Otherwise the bridge
+ * in `src/bridge/` synthesises the binding via an HTTP fallback. Once the
+ * upstream patch lands, delete `src/bridge/`, drop the `setupBridge` import
+ * and call below, replace `wrapperPath` with `options.entryPoint`, remove
+ * the `serviceBinding` insertion, and replace `src/hooks.ts` with a no-op
+ * handle.
+ *
  * Usage in vite.config.ts:
  *   addWorkerExports({ entryPoint: 'src/lib/server/index.ts' })
  *
@@ -19,17 +28,15 @@
 
 import { build } from 'esbuild';
 import { existsSync } from 'node:fs';
-import { access, mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
+import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import type { NodeJSCompatMode } from 'miniflare';
 import type { Plugin } from 'vite';
+import { setupBridge } from './bridge/setup.js';
 
 const DEFAULT_DEV_PORT = 8787;
-const BRIDGE_BINDING = '__SWE_BRIDGE';
-const CACHE_DIR_REL = 'node_modules/.cache/sveltekit-add-worker-exports';
-const WRAPPER_FILENAME = 'dev-worker-entry.ts';
 
 /**
  * Mirrors wrangler's internal getRegistryPath() — wrangler doesn't export it.
@@ -135,7 +142,7 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 	let tempConfigPath: string | null = null;
 	let proxyConfigPath: string | null = null;
 	let typesConfigPath: string | null = null;
-	let wrapperPath: string | null = null;
+	let bridgeDispose: (() => Promise<void>) | null = null;
 
 	let cached: { rawJson: string; workflowBindings: string[] } | null = null;
 	async function readConfig() {
@@ -166,30 +173,25 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			const { unstable_startWorker } = await import('wrangler');
 			const { rawJson, workflowBindings } = await readConfig();
 
-			// The hook reads these from globalThis. We can't use vite's `define`
-			// because dist/hooks.js lives in node_modules and vite doesn't
-			// transform external modules in SSR by default — substitutions
-			// would never apply.
-			(globalThis as Record<string, unknown>).__SWE_BRIDGE_NAME__ = BRIDGE_BINDING;
-			(globalThis as Record<string, unknown>).__SWE_WORKFLOWS__ = workflowBindings;
+			const sidecarName = `${parseJsonc(rawJson).name ?? 'sveltekit'}-dev-worker`;
 
-			// Generate a sidecar wrapper entry that re-exports the user's classes
-			// and adds /__swe/wf/* HTTP routes used by the SvelteKit-side hook to
-			// proxy workflow API calls into the sidecar (which has the real
-			// workflow bindings).
-			const cacheDir = resolve(CACHE_DIR_REL);
-			await mkdir(cacheDir, { recursive: true });
-			wrapperPath = join(cacheDir, WRAPPER_FILENAME);
-			const userEntryAbs = resolve(options.entryPoint);
-			const userEntryRel = relative(dirname(wrapperPath), userEntryAbs)
-				.replace(/\\/g, '/')
-				.replace(/\.(ts|tsx|js|jsx|mjs|mts)$/, '');
-			await writeFile(wrapperPath, generateWrapperSource(userEntryRel, workflowBindings));
+			// Set up the workflow HTTP bridge (see src/bridge/). This is the
+			// fallback used when the installed wrangler/miniflare strips
+			// workflow bindings from getPlatformProxy. When the upstream
+			// patch lands (cloudflare/workers-sdk#7459), delete src/bridge,
+			// remove this call, and use options.entryPoint as the dev
+			// config's `main` directly (no service binding either).
+			const bridge = await setupBridge({
+				userEntryAbs: resolve(options.entryPoint),
+				workflowBindings,
+				sidecarName
+			});
+			bridgeDispose = bridge.dispose;
 
 			// Copy the raw config and override main, name, and dev port
 			const devConfig = parseJsonc(rawJson);
-			devConfig.name = `${devConfig.name ?? 'sveltekit'}-dev-worker`;
-			devConfig.main = wrapperPath;
+			devConfig.name = sidecarName;
+			devConfig.main = bridge.wrapperPath;
 			devConfig.dev = { ...devConfig.dev, port: devPort };
 			delete devConfig.assets;
 
@@ -201,30 +203,30 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			// Workflows itself -- those are served by the sidecar above. Rewrite
 			// internal DO bindings as cross-worker bindings (script_name pointing
 			// at the sidecar) so platform.env.MY_DO calls in +server.ts reach the
-			// sidecar via the wrangler dev registry.
-			//
-			// Workflows are different: wrangler's getPlatformProxy unconditionally
-			// deletes workflow bindings from the env (see
-			// getMiniflareOptionsFromConfig in wrangler), even when they have a
-			// script_name. We strip them here and add a cross-worker service
-			// binding (BRIDGE_BINDING) pointing at the sidecar; the
-			// `hooks.server.ts` handle exported from this package synthesizes
-			// Workflow-shaped objects on platform.env that proxy API calls
-			// through that service binding into the sidecar's /__swe/wf/* routes.
+			// sidecar via the wrangler dev registry. Workflows get the same
+			// rewrite; on patched wrangler/miniflare miniflare routes them via
+			// the dev-registry-proxy. On unpatched, wrangler strips them and the
+			// bridge service binding (added below) drives the SvelteKit hook
+			// fallback.
 			const proxyConfig = parseJsonc(rawJson);
 			if (proxyConfig.durable_objects?.bindings) {
 				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.map(
 					(b: { script_name?: string }) =>
-						b.script_name ? b : { ...b, script_name: devConfig.name }
+						b.script_name ? b : { ...b, script_name: sidecarName }
+				);
+			}
+			if (Array.isArray(proxyConfig.workflows)) {
+				proxyConfig.workflows = proxyConfig.workflows.map(
+					(w: { script_name?: string }) =>
+						w.script_name ? w : { ...w, script_name: sidecarName }
 				);
 			}
 			if (workflowBindings.length > 0) {
 				proxyConfig.services = [
 					...(proxyConfig.services ?? []),
-					{ binding: BRIDGE_BINDING, service: devConfig.name }
+					bridge.serviceBinding
 				];
 			}
-			delete proxyConfig.workflows;
 			delete proxyConfig.migrations;
 
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
@@ -237,7 +239,7 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			// because wrangler's type resolver doesn't follow `export *` re-exports
 			// out of node_modules.
 			const typesConfig = parseJsonc(rawJson);
-			typesConfig.name = devConfig.name;
+			typesConfig.name = sidecarName;
 			typesConfig.main = options.entryPoint;
 			typesConfig.dev = { ...typesConfig.dev, port: devPort };
 			delete typesConfig.assets;
@@ -270,82 +272,13 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				if (typesConfigPath) {
 					await unlink(typesConfigPath).catch(() => {});
 				}
-				if (wrapperPath) {
-					await unlink(wrapperPath).catch(() => {});
+				if (bridgeDispose) {
+					await bridgeDispose();
+					bridgeDispose = null;
 				}
 			});
 		}
 	};
-}
-
-function generateWrapperSource(userEntryRel: string, workflowBindings: string[]): string {
-	const importPath = JSON.stringify(userEntryRel);
-	const bindingList = JSON.stringify(workflowBindings);
-	return `// Auto-generated by @oselvar/sveltekit-add-worker-exports.
-// Bridges Workflow bindings to SvelteKit dev. Do not edit.
-import * as user from ${importPath};
-export * from ${importPath};
-
-const userDefault: any = (user as any).default;
-const WORKFLOW_BINDINGS = new Set<string>(${bindingList});
-
-export default {
-\tasync fetch(request: Request, env: any, ctx: any): Promise<Response> {
-\t\tconst url = new URL(request.url);
-\t\tif (url.pathname.startsWith('/__swe/wf/')) {
-\t\t\treturn handleWf(url.pathname.slice('/__swe/wf/'.length), request, env);
-\t\t}
-\t\tif (userDefault?.fetch) return userDefault.fetch(request, env, ctx);
-\t\treturn new Response('Not found', { status: 404 });
-\t}
-};
-
-async function handleWf(rest: string, request: Request, env: any): Promise<Response> {
-\tconst parts = rest.split('/').map(decodeURIComponent);
-\tconst [binding, op, ...tail] = parts;
-\tif (!binding || !WORKFLOW_BINDINGS.has(binding)) {
-\t\treturn new Response('unknown workflow binding: ' + binding, { status: 404 });
-\t}
-\tconst wf = env[binding];
-\tif (!wf) return new Response('binding ' + binding + ' missing on sidecar', { status: 500 });
-\ttry {
-\t\tif (op === 'create' && request.method === 'POST') {
-\t\t\tconst opts = await request.json();
-\t\t\tconst inst = await wf.create(opts);
-\t\t\treturn Response.json({ id: inst.id });
-\t\t}
-\t\tif (op === 'createBatch' && request.method === 'POST') {
-\t\t\tconst batch = await request.json();
-\t\t\tconst insts = await wf.createBatch(batch);
-\t\t\treturn Response.json(insts.map((i: any) => ({ id: i.id })));
-\t\t}
-\t\tif (op === 'get' && tail.length === 1) {
-\t\t\tconst inst = await wf.get(tail[0]);
-\t\t\treturn Response.json({ id: inst.id });
-\t\t}
-\t\tif (op === 'instance' && tail.length === 2) {
-\t\t\tconst [id, method] = tail;
-\t\t\tconst inst = await wf.get(id);
-\t\t\tswitch (method) {
-\t\t\t\tcase 'pause': await inst.pause(); return new Response(null, { status: 204 });
-\t\t\t\tcase 'resume': await inst.resume(); return new Response(null, { status: 204 });
-\t\t\t\tcase 'terminate': await inst.terminate(); return new Response(null, { status: 204 });
-\t\t\t\tcase 'restart': await inst.restart(); return new Response(null, { status: 204 });
-\t\t\t\tcase 'status': return Response.json(await inst.status());
-\t\t\t\tcase 'sendEvent': {
-\t\t\t\t\tconst body = await request.json();
-\t\t\t\t\tawait inst.sendEvent(body);
-\t\t\t\t\treturn new Response(null, { status: 204 });
-\t\t\t\t}
-\t\t\t}
-\t\t\treturn new Response('unknown method: ' + method, { status: 404 });
-\t\t}
-\t\treturn new Response('unknown op: ' + op, { status: 404 });
-\t} catch (err: any) {
-\t\treturn new Response('error: ' + (err?.message ?? String(err)), { status: 500 });
-\t}
-}
-`;
 }
 
 async function exists(path: string): Promise<boolean> {
