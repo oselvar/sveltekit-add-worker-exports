@@ -111,6 +111,7 @@ function buildPlugin(options: AddWorkerExportsOptions): Plugin {
 				format: 'esm',
 				sourcemap: true,
 				target: 'esnext',
+				platform: 'node',
 				external: ['cloudflare:*'],
 				outfile: exportsPath
 			});
