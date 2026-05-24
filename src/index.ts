@@ -11,6 +11,15 @@
  * server via `unstable_startWorker` that runs the real DO worker. Clients
  * connect directly to it via WebSocket on a separate port.
  *
+ * Workflows in dev are best-effort: if the installed wrangler/miniflare
+ * supports cross-worker workflow routing (cloudflare/workers-sdk#7459),
+ * `platform.env.MY_WORKFLOW.create(...)` works directly. Otherwise the bridge
+ * in `src/bridge/` synthesises the binding via an HTTP fallback. Once the
+ * upstream patch lands, delete `src/bridge/`, drop the `setupBridge` import
+ * and call below, replace `wrapperPath` with `options.entryPoint`, remove
+ * the `serviceBinding` insertion, and replace `src/hooks.ts` with a no-op
+ * handle.
+ *
  * Usage in vite.config.ts:
  *   addWorkerExports({ entryPoint: 'src/lib/server/index.ts' })
  *
@@ -23,7 +32,9 @@ import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
+import type { NodeJSCompatMode } from 'miniflare';
 import type { Plugin } from 'vite';
+import { setupBridge } from './bridge/setup.js';
 
 const DEFAULT_DEV_PORT = 8787;
 
@@ -157,6 +168,21 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 	let worker: { dispose: () => Promise<void> } | null = null;
 	let tempConfigPath: string | null = null;
 	let proxyConfigPath: string | null = null;
+	let typesConfigPath: string | null = null;
+	let bridgeDispose: (() => Promise<void>) | null = null;
+
+	let cached: { rawJson: string; workflowBindings: string[] } | null = null;
+	async function readConfig() {
+		if (cached) return cached;
+		const { unstable_readConfig } = await import('wrangler');
+		const parsed = unstable_readConfig(
+			options.wranglerConfig ? { config: options.wranglerConfig } : {}
+		);
+		const rawJson = await readFile(parsed.configPath!, 'utf-8');
+		const workflowBindings = (parsed.workflows ?? []).map((w: { binding: string }) => w.binding);
+		cached = { rawJson, workflowBindings };
+		return cached;
+	}
 
 	return {
 		name: 'add-worker-exports-dev',
@@ -171,47 +197,92 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 		},
 
 		async configureServer(server) {
-			const { unstable_readConfig, unstable_startWorker } = await import('wrangler');
+			const { unstable_startWorker } = await import('wrangler');
+			const { rawJson, workflowBindings } = await readConfig();
 
-			// Read the project's wrangler config (auto-discovers wrangler.jsonc/toml)
-			const wranglerConfig = unstable_readConfig(
-				options.wranglerConfig ? { config: options.wranglerConfig } : {}
-			);
+			const sidecarName = `${parseJsonc(rawJson).name ?? 'sveltekit'}-dev-worker`;
+
+			// Set up the workflow HTTP bridge (see src/bridge/). This is the
+			// fallback used when the installed wrangler/miniflare strips
+			// workflow bindings from getPlatformProxy. When the upstream
+			// patch lands (cloudflare/workers-sdk#7459), delete src/bridge,
+			// remove this call, and use options.entryPoint as the dev
+			// config's `main` directly (no service binding either).
+			const bridge = await setupBridge({
+				userEntryAbs: resolve(options.entryPoint),
+				workflowBindings,
+				sidecarName
+			});
+			bridgeDispose = bridge.dispose;
 
 			// Copy the raw config and override main, name, and dev port
-			const rawJson = await readFile(wranglerConfig.configPath!, 'utf-8');
 			const devConfig = parseJsonc(rawJson);
-			devConfig.name = `${devConfig.name ?? 'sveltekit'}-dev-worker`;
-			devConfig.main = options.entryPoint;
+			devConfig.name = sidecarName;
+			devConfig.main = bridge.wrapperPath;
 			devConfig.dev = { ...devConfig.dev, port: devPort };
 			delete devConfig.assets;
 
 			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
 			await writeFile(tempConfigPath, JSON.stringify(devConfig, null, '\t'));
 
-			// Also write a wrangler config for adapter-cloudflare's getPlatformProxy
+			// Write a wrangler config for adapter-cloudflare's getPlatformProxy
 			// (used by vite dev for platform.env). It can't run internal DOs or
 			// Workflows itself -- those are served by the sidecar above. Rewrite
 			// internal DO bindings as cross-worker bindings (script_name pointing
 			// at the sidecar) so platform.env.MY_DO calls in +server.ts reach the
-			// sidecar via the wrangler dev registry. Workflows and migrations get
-			// stripped (Workflow bindings have no script_name equivalent).
+			// sidecar via the wrangler dev registry. Workflows get the same
+			// rewrite; on patched wrangler/miniflare miniflare routes them via
+			// the dev-registry-proxy. On unpatched, wrangler strips them and the
+			// bridge service binding (added below) drives the SvelteKit hook
+			// fallback.
 			const proxyConfig = parseJsonc(rawJson);
 			if (proxyConfig.durable_objects?.bindings) {
 				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.map(
 					(b: { script_name?: string }) =>
-						b.script_name ? b : { ...b, script_name: devConfig.name }
+						b.script_name ? b : { ...b, script_name: sidecarName }
 				);
 			}
-			delete proxyConfig.workflows;
+			if (Array.isArray(proxyConfig.workflows)) {
+				proxyConfig.workflows = proxyConfig.workflows.map(
+					(w: { script_name?: string }) =>
+						w.script_name ? w : { ...w, script_name: sidecarName }
+				);
+			}
+			if (workflowBindings.length > 0) {
+				proxyConfig.services = [
+					...(proxyConfig.services ?? []),
+					bridge.serviceBinding
+				];
+			}
 			delete proxyConfig.migrations;
 
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
 			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
 
+			// A third config used only by `wrangler types`. Identical to the dev
+			// config except `main` points at the user's source entry, so wrangler
+			// can resolve typed bindings (DurableObjectNamespace<EchoDO>, etc.).
+			// Pointing types at our generated wrapper produces untyped bindings
+			// because wrangler's type resolver doesn't follow `export *` re-exports
+			// out of node_modules.
+			const typesConfig = parseJsonc(rawJson);
+			typesConfig.name = sidecarName;
+			typesConfig.main = options.entryPoint;
+			typesConfig.dev = { ...typesConfig.dev, port: devPort };
+			delete typesConfig.assets;
+			typesConfigPath = resolve('.types-worker-wrangler.jsonc');
+			await writeFile(typesConfigPath, JSON.stringify(typesConfig, null, '\t'));
+
 			worker = await unstable_startWorker({
 				config: tempConfigPath,
-				dev: { registry: getWranglerRegistryPath() }
+				dev: { registry: getWranglerRegistryPath() },
+				build: {
+					nodejsCompatMode: (parsedConfig) =>
+						getNodejsCompatMode(
+							parsedConfig.compatibility_date,
+							parsedConfig.compatibility_flags
+						)
+				}
 			});
 
 			server.httpServer?.on('close', async () => {
@@ -225,6 +296,13 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				if (proxyConfigPath) {
 					await unlink(proxyConfigPath).catch(() => {});
 				}
+				if (typesConfigPath) {
+					await unlink(typesConfigPath).catch(() => {});
+				}
+				if (bridgeDispose) {
+					await bridgeDispose();
+					bridgeDispose = null;
+				}
 			});
 		}
 	};
@@ -237,4 +315,26 @@ async function exists(path: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Mirrors miniflare's `getNodeCompat` mode resolution. wrangler's
+ * `unstable_startWorker` does not derive this from the config flags
+ * automatically — without it, wrangler falls back to the legacy nodejs
+ * compat plugin and warns about `node:*` imports even when
+ * `nodejs_compat` is enabled.
+ */
+function getNodejsCompatMode(
+	compatibilityDate: string | undefined,
+	compatibilityFlags: readonly string[] = []
+): NodeJSCompatMode {
+	const hasCompat = compatibilityFlags.includes('nodejs_compat');
+	const hasCompatV2 = compatibilityFlags.includes('nodejs_compat_v2');
+	const hasNoCompatV2 = compatibilityFlags.includes('no_nodejs_compat_v2');
+	const hasAls = compatibilityFlags.includes('nodejs_als');
+	const date = compatibilityDate ?? '2000-01-01';
+	if (hasCompatV2 || (hasCompat && date >= '2024-09-23' && !hasNoCompatV2)) return 'v2';
+	if (hasCompat) return 'v1';
+	if (hasAls) return 'als';
+	return null;
 }
