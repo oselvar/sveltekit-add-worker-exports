@@ -27,6 +27,17 @@ import type { Plugin } from 'vite';
 
 const DEFAULT_DEV_PORT = 8787;
 
+const NODE_BUILTINS = [
+	'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
+	'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain',
+	'events', 'fs', 'fs/promises', 'http', 'http2', 'https', 'inspector',
+	'module', 'net', 'os', 'path', 'path/posix', 'path/win32', 'perf_hooks',
+	'process', 'punycode', 'querystring', 'readline', 'repl', 'stream',
+	'stream/consumers', 'stream/promises', 'stream/web', 'string_decoder',
+	'sys', 'timers', 'timers/promises', 'tls', 'trace_events', 'tty', 'url',
+	'util', 'util/types', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib'
+];
+
 /**
  * Mirrors wrangler's internal getRegistryPath() — wrangler doesn't export it.
  * Workers register themselves under this path so cross-worker `script_name`
@@ -104,15 +115,30 @@ function buildPlugin(options: AddWorkerExportsOptions): Plugin {
 				return;
 			}
 
-			// Bundle the named exports
+			// Bundle the named exports.
+			//
+			// `conditions: ['workerd', 'worker', 'browser']` is the Cloudflare-
+			// recommended set for bundlers targeting Workers — it picks the
+			// workerd-specific or browser-shimmed variants of packages over
+			// their Node variants (e.g. nanoid's webcrypto-via-`globalThis.crypto`
+			// browser build instead of the `node:crypto`-importing main build).
+			//
+			// Node built-ins are externalised so transitive deps that do
+			// `require('path')` or `import 'node:async_hooks'` survive bundling;
+			// the Workers runtime resolves them when `nodejs_compat` is enabled
+			// in wrangler.jsonc.
 			await build({
 				entryPoints: [options.entryPoint],
 				bundle: true,
 				format: 'esm',
 				sourcemap: true,
 				target: 'esnext',
-				platform: 'node',
-				external: ['cloudflare:*'],
+				conditions: ['workerd', 'worker', 'browser'],
+				external: [
+					'cloudflare:*',
+					...NODE_BUILTINS,
+					...NODE_BUILTINS.map((m) => `node:${m}`)
+				],
 				outfile: exportsPath
 			});
 

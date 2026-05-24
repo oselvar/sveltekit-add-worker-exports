@@ -12,9 +12,11 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"devDependencies": {
+		"@cloudflare/voice": "^0.1.2",
 		"@oselvar/sveltekit-add-worker-exports": "workspace:*",
 		"@sveltejs/adapter-cloudflare": "^7.0.0",
 		"@sveltejs/kit": "^2.0.0",
+		"agents": "^0.12.4",
 		"esbuild": "^0.27.0",
 		"prettier": "^3.0.0",
 		"prettier-plugin-svelte": "^3.0.0",

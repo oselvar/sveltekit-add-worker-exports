@@ -1,8 +1,8 @@
 {
 	"$schema": "../node_modules/wrangler/config-schema.json",
 	"name": "echo-example",
-	"compatibility_date": "2026-04-23",
-	"compatibility_flags": ["nodejs_als"],
+	"compatibility_date": "2026-05-13",
+	"compatibility_flags": ["nodejs_compat"],
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"assets": {
 		"binding": "ASSETS",
@@ -13,6 +13,10 @@
 			{
 				"name": "ECHO",
 				"class_name": "EchoDO"
+			},
+			{
+				"name": "VOICED_AGENT",
+				"class_name": "VoicedAgent"
 			}
 		]
 	},
@@ -27,6 +31,10 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["EchoDO"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["VoicedAgent"]
 		}
 	]
 }
