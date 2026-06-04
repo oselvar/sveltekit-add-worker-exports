@@ -40,11 +40,12 @@
 		"wrangler": ">=4"
 	},
 	"devDependencies": {
+		"@release-it/conventional-changelog": "^11.0.1",
 		"@sveltejs/kit": "^2.62.0",
 		"@types/node": "^25.9.1",
 		"esbuild": "^0.28.0",
 		"miniflare": "^4.20260601.0",
-		"np": "^11.2.1",
+		"release-it": "^20.2.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.0.16",
 		"wrangler": "^4.98.0"
@@ -52,7 +53,8 @@
 	"scripts": {
 		"build": "tsc",
 		"test": "tsc --noEmit",
-		"prepublishOnly": "tsc"
+		"prepublishOnly": "tsc",
+		"release": "release-it"
 	},
 	"dependencies": {
 		"jsonc-parser": "^3.3.1"

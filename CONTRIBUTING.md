@@ -55,12 +55,32 @@ The package exports a single function `addWorkerExports()` that returns two Vite
 - `esbuild`, `vite`, and `wrangler` are **peer dependencies** (the consuming SvelteKit project provides them)
 - `jsonc-parser` is a regular **dependency** (installed alongside the package)
 
+## Commit messages
+
+This repository follows [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). The commit type determines the next version bump and the section the change appears under in `CHANGELOG.md`:
+
+| Type | Bump | Changelog section |
+|------|------|-------------------|
+| `feat:` | minor | Features |
+| `fix:` | patch | Bug Fixes |
+| `perf:` | patch | Performance |
+| `refactor:` / `docs:` / `chore:` / `test:` / `build:` / `ci:` / `style:` | none | hidden by default |
+| `feat!:` / `fix!:` / footer `BREAKING CHANGE:` | major | Breaking Changes |
+
+Scope is optional (`feat(dev): ...`). Use the imperative mood in the subject.
+
 ## Releasing
 
-We use [np](https://github.com/sindresorhus/np) for releases:
+We use [release-it](https://github.com/release-it/release-it) with the [`@release-it/conventional-changelog`](https://github.com/release-it/conventional-changelog) plugin. It determines the version bump from the commits since the last tag, prepends a new entry to `CHANGELOG.md`, runs `pnpm build`, publishes to npm, tags, and pushes:
 
 ```bash
-npx np
+pnpm release
 ```
 
-This handles version bumping, building (via `prepublishOnly`), publishing to npm, git tagging, and pushing.
+Dry-run first to preview the bump and changelog entry without touching anything:
+
+```bash
+pnpm release --dry-run
+```
+
+Force a specific bump if needed: `pnpm release patch`, `pnpm release minor`, `pnpm release major`.
