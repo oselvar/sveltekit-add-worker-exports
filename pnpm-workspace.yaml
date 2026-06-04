@@ -6,3 +6,6 @@ allowBuilds:
   sharp: true
   workerd: true
 approveBuilds: esbuild
+minimumReleaseAgeExclude:
+  - miniflare@4.20260603.0
+  - wrangler@4.98.0
