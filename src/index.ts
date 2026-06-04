@@ -7,18 +7,13 @@
  * exports. This plugin post-processes the build output to merge them.
  *
  * **Dev mode:** `getPlatformProxy` (used by adapter-cloudflare in dev) can't
- * run internal Durable Objects. This plugin starts a separate wrangler dev
- * server via `unstable_startWorker` that runs the real DO worker. Clients
- * connect directly to it via WebSocket on a separate port.
- *
- * Workflows in dev are best-effort: if the installed wrangler/miniflare
- * supports cross-worker workflow routing (cloudflare/workers-sdk#7459),
- * `platform.env.MY_WORKFLOW.create(...)` works directly. Otherwise the bridge
- * in `src/bridge/` synthesises the binding via an HTTP fallback. Once the
- * upstream patch lands, delete `src/bridge/`, drop the `setupBridge` import
- * and call below, replace `wrapperPath` with `options.entryPoint`, remove
- * the `serviceBinding` insertion, and replace `src/hooks.ts` with a no-op
- * handle.
+ * run internal Durable Objects or Workflows. This plugin starts a separate
+ * wrangler dev server via `unstable_startWorker` that runs the real
+ * DO/Workflow worker. Internal DO and Workflow bindings in the platform-proxy
+ * config get a `script_name` pointing at that sidecar; miniflare routes calls
+ * across the dev registry (cloudflare/workers-sdk#7459, fixed in wrangler
+ * 4.98.0). Clients connect directly to the sidecar via WebSocket on a
+ * separate port.
  *
  * Usage in vite.config.ts:
  *   addWorkerExports({ entryPoint: 'src/lib/server/index.ts' })
@@ -34,7 +29,6 @@ import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import type { NodeJSCompatMode } from 'miniflare';
 import type { Plugin } from 'vite';
-import { setupBridge } from './bridge/setup.js';
 
 const DEFAULT_DEV_PORT = 8787;
 
@@ -169,19 +163,13 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 	let tempConfigPath: string | null = null;
 	let proxyConfigPath: string | null = null;
 	let typesConfigPath: string | null = null;
-	let bridgeDispose: (() => Promise<void>) | null = null;
 
-	let cached: { rawJson: string; workflowBindings: string[] } | null = null;
-	async function readConfig() {
-		if (cached) return cached;
+	async function readRawConfig(): Promise<string> {
 		const { unstable_readConfig } = await import('wrangler');
 		const parsed = unstable_readConfig(
 			options.wranglerConfig ? { config: options.wranglerConfig } : {}
 		);
-		const rawJson = await readFile(parsed.configPath!, 'utf-8');
-		const workflowBindings = (parsed.workflows ?? []).map((w: { binding: string }) => w.binding);
-		cached = { rawJson, workflowBindings };
-		return cached;
+		return readFile(parsed.configPath!, 'utf-8');
 	}
 
 	return {
@@ -198,27 +186,14 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 
 		async configureServer(server) {
 			const { unstable_startWorker } = await import('wrangler');
-			const { rawJson, workflowBindings } = await readConfig();
+			const rawJson = await readRawConfig();
 
 			const sidecarName = `${parseJsonc(rawJson).name ?? 'sveltekit'}-dev-worker`;
-
-			// Set up the workflow HTTP bridge (see src/bridge/). This is the
-			// fallback used when the installed wrangler/miniflare strips
-			// workflow bindings from getPlatformProxy. When the upstream
-			// patch lands (cloudflare/workers-sdk#7459), delete src/bridge,
-			// remove this call, and use options.entryPoint as the dev
-			// config's `main` directly (no service binding either).
-			const bridge = await setupBridge({
-				userEntryAbs: resolve(options.entryPoint),
-				workflowBindings,
-				sidecarName
-			});
-			bridgeDispose = bridge.dispose;
 
 			// Copy the raw config and override main, name, and dev port
 			const devConfig = parseJsonc(rawJson);
 			devConfig.name = sidecarName;
-			devConfig.main = bridge.wrapperPath;
+			devConfig.main = options.entryPoint;
 			devConfig.dev = { ...devConfig.dev, port: devPort };
 			delete devConfig.assets;
 
@@ -228,13 +203,10 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			// Write a wrangler config for adapter-cloudflare's getPlatformProxy
 			// (used by vite dev for platform.env). It can't run internal DOs or
 			// Workflows itself -- those are served by the sidecar above. Rewrite
-			// internal DO bindings as cross-worker bindings (script_name pointing
-			// at the sidecar) so platform.env.MY_DO calls in +server.ts reach the
-			// sidecar via the wrangler dev registry. Workflows get the same
-			// rewrite; on patched wrangler/miniflare miniflare routes them via
-			// the dev-registry-proxy. On unpatched, wrangler strips them and the
-			// bridge service binding (added below) drives the SvelteKit hook
-			// fallback.
+			// internal DO and Workflow bindings as cross-worker bindings
+			// (script_name pointing at the sidecar) so platform.env.MY_DO and
+			// platform.env.MY_WORKFLOW calls in +server.ts reach the sidecar via
+			// the wrangler dev registry.
 			const proxyConfig = parseJsonc(rawJson);
 			if (proxyConfig.durable_objects?.bindings) {
 				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.map(
@@ -248,23 +220,15 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 						w.script_name ? w : { ...w, script_name: sidecarName }
 				);
 			}
-			if (workflowBindings.length > 0) {
-				proxyConfig.services = [
-					...(proxyConfig.services ?? []),
-					bridge.serviceBinding
-				];
-			}
 			delete proxyConfig.migrations;
 
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
 			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
 
 			// A third config used only by `wrangler types`. Identical to the dev
-			// config except `main` points at the user's source entry, so wrangler
-			// can resolve typed bindings (DurableObjectNamespace<EchoDO>, etc.).
-			// Pointing types at our generated wrapper produces untyped bindings
-			// because wrangler's type resolver doesn't follow `export *` re-exports
-			// out of node_modules.
+			// config but kept separate so the user can run `wrangler types
+			// --config .types-worker-wrangler.jsonc` to get typed bindings like
+			// DurableObjectNamespace<EchoDO> resolved from the source entry.
 			const typesConfig = parseJsonc(rawJson);
 			typesConfig.name = sidecarName;
 			typesConfig.main = options.entryPoint;
@@ -298,10 +262,6 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				}
 				if (typesConfigPath) {
 					await unlink(typesConfigPath).catch(() => {});
-				}
-				if (bridgeDispose) {
-					await bridgeDispose();
-					bridgeDispose = null;
 				}
 			});
 		}

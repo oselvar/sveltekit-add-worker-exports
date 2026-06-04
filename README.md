@@ -87,7 +87,7 @@ export default defineConfig({
 });
 ```
 
-Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wrangler.jsonc`. The plugin writes this file with internal Durable Object bindings rewritten to cross-worker form (each gets a `script_name` pointing at the sidecar). Workflows can't survive `getPlatformProxy` (wrangler unconditionally deletes them), so the plugin replaces them with a service binding pointing at the sidecar; a small SvelteKit hook synthesizes the missing `Workflow` API on top of that bridge — see [Dev mode: calling Workflows](#dev-mode-calling-workflows) below. Without this config path, `getPlatformProxy` would try to run the DO classes itself and warn that it can't:
+Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wrangler.jsonc`. The plugin writes this file with internal Durable Object and Workflow bindings rewritten to cross-worker form (each gets a `script_name` pointing at the sidecar), so `platform.env.MY_DO` and `platform.env.MY_WORKFLOW` calls in `+server.ts` reach the sidecar via the wrangler dev registry. Without this config path, `getPlatformProxy` would try to run the DO/Workflow classes itself and warn that it can't:
 
 ```javascript
 // svelte.config.js
@@ -129,29 +129,11 @@ declare global {
 }
 ```
 
-The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads DO bindings, workflows, migrations, and compatibility settings from it. It overrides only the `main` entry point to use a generated wrapper (in `node_modules/.cache/sveltekit-add-worker-exports/`) that re-exports your classes and adds the workflow bridge routes.
+The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads DO bindings, workflows, migrations, and compatibility settings from it. It overrides only the `main` entry point to point at your source entry.
 
 ### Dev mode: calling Workflows
 
-Workflow bindings can't be passed through `getPlatformProxy` — wrangler unconditionally strips them ([source](https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/api/integrations/platform/index.ts)). The plugin works around this by adding a service binding to the sidecar and shipping a SvelteKit `Handle` that synthesizes `Workflow`-shaped objects on `platform.env`.
-
-Wire it up in `src/hooks.server.ts`:
-
-```typescript
-export { handle } from '@oselvar/sveltekit-add-worker-exports/hooks';
-```
-
-If you already have a `handle`, compose with `sequence`:
-
-```typescript
-import { sequence } from '@sveltejs/kit/hooks';
-import { handle as sweHandle } from '@oselvar/sveltekit-add-worker-exports/hooks';
-import { handle as myHandle } from './my-handle';
-
-export const handle = sequence(sweHandle, myHandle);
-```
-
-After that, `+server.ts` can call workflows the same way it does in production:
+`+server.ts` calls workflows the same way it does in production:
 
 ```typescript
 export const POST: RequestHandler = async ({ params, request, platform }) => {
@@ -163,7 +145,7 @@ export const POST: RequestHandler = async ({ params, request, platform }) => {
 };
 ```
 
-In production the hook is a no-op — it reads its config from runtime globals that only the dev plugin sets, and `platform.env.MY_WORKFLOW` is the real Cloudflare binding.
+The sidecar runs the real `WorkflowEntrypoint` class; calls reach it via the `script_name` rewrite in the platform-proxy config. This requires `wrangler >= 4.98.0` ([cloudflare/workers-sdk#13863](https://github.com/cloudflare/workers-sdk/pull/13863)).
 
 ### Testing the production build locally
 
@@ -243,7 +225,7 @@ Add this to your `package.json` scripts for convenience:
 }
 ```
 
-Note: the `.types-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`. (The plugin also writes `.dev-worker-wrangler.jsonc` for the runtime sidecar, but its `main` points at a generated bridge wrapper in `node_modules/.cache/`, which can't be used for type generation — wrangler doesn't follow `export *` re-exports out of node_modules.)
+Note: the `.types-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`.
 
 ## Why this exists
 

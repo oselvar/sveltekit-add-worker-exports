@@ -1,13 +1,12 @@
 /**
  * SvelteKit `Handle` re-exported for users.
  *
- * Implementation lives in `./bridge/runtime-hook` while the workflow bridge
- * exists. Once miniflare ships cross-worker workflow routing
- * (cloudflare/workers-sdk#7459), replace this file with a no-op handle:
- *
- *   import type { Handle } from '@sveltejs/kit';
- *   export const handle: Handle = ({ event, resolve }) => resolve(event);
- *
- * and delete `src/bridge/`.
+ * Kept as a no-op for backwards compatibility. Wrangler 4.98.0 fixed
+ * cross-worker workflow routing in `getPlatformProxy`
+ * (cloudflare/workers-sdk#13863), so `platform.env.MY_WORKFLOW` is now a
+ * real binding in both dev and production — no synthesis required.
  */
-export { handle } from './bridge/runtime-hook.js';
+
+import type { Handle } from '@sveltejs/kit';
+
+export const handle: Handle = ({ event, resolve }) => resolve(event);

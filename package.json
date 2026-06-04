@@ -14,10 +14,6 @@
 		"./hooks": {
 			"types": "./dist/hooks.d.ts",
 			"import": "./dist/hooks.js"
-		},
-		"./dev-bridge": {
-			"types": "./dist/bridge/dev-handler.d.ts",
-			"import": "./dist/bridge/dev-handler.js"
 		}
 	},
 	"files": [
