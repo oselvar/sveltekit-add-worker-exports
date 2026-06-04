@@ -11,7 +11,8 @@
 		"publish": true
 	},
 	"github": {
-		"release": false
+		"release": true,
+		"releaseName": "v${version}"
 	},
 	"hooks": {
 		"after:bump": "pnpm build"

@@ -71,11 +71,13 @@ Scope is optional (`feat(dev): ...`). Use the imperative mood in the subject.
 
 ## Releasing
 
-We use [release-it](https://github.com/release-it/release-it) with the [`@release-it/conventional-changelog`](https://github.com/release-it/conventional-changelog) plugin. It determines the version bump from the commits since the last tag, prepends a new entry to `CHANGELOG.md`, runs `pnpm build`, publishes to npm, tags, and pushes:
+We use [release-it](https://github.com/release-it/release-it) with the [`@release-it/conventional-changelog`](https://github.com/release-it/conventional-changelog) plugin. It determines the version bump from the commits since the last tag, prepends a new entry to `CHANGELOG.md`, runs `pnpm build`, publishes to npm, tags, pushes, and creates a GitHub release with the same notes:
 
 ```bash
-pnpm release
+GITHUB_TOKEN=$(gh auth token) pnpm release
 ```
+
+`GITHUB_TOKEN` is required for the GitHub release step. `gh auth token` reuses your `gh` CLI login; set it via your shell profile or alias if you don't want to type it every time.
 
 Dry-run first to preview the bump and changelog entry without touching anything:
 
