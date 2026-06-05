@@ -4,7 +4,7 @@ A Vite plugin that makes any class-based Cloudflare Worker export (Durable Objec
 
 **Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires class-based bindings (Durable Objects, Workflows, `WorkerEntrypoint`, etc.) to be **named exports**. This plugin post-processes the build output to merge your named exports with SvelteKit's default export.
 
-**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects, Workflows, or other class-based bindings. This plugin starts a separate wrangler dev server that runs the real worker with hot-reload. SvelteKit `+server.ts` handlers call bindings through `platform.env.MY_BINDING.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. Clients can also connect directly to the sidecar via WebSocket on a separate port (see below).
+**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects, Workflows, or other class-based bindings. This plugin starts a separate wrangler dev server that runs the real worker with hot-reload. SvelteKit `+server.ts` handlers call bindings through `platform.env.MY_BINDING.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. WebSocket clients in dev connect to the sidecar directly on a separate port — see [WebSockets](#websockets) below.
 
 ## What this works with
 
@@ -26,61 +26,17 @@ pnpm add -D @oselvar/sveltekit-add-worker-exports
 
 ## Usage
 
-Create a worker entry point that exports your Durable Object classes and a default fetch handler. The fetch handler is only used by the wrangler dev server — in production, SvelteKit's route handlers handle all requests.
+Create a worker entry point that exports your class-based bindings:
 
 ```typescript
 // src/lib/server/index.ts
 export { MyDurableObject } from './MyDurableObject';
 export { MyWorkflow } from './MyWorkflow';
-export { default } from './devHandler';
 ```
 
 Workflow classes (extending `WorkflowEntrypoint`) are exported the same way as Durable Objects — the plugin merges them into `_worker.js` as named exports. Declare them in `wrangler.jsonc` under `workflows`, and they become available as bindings (e.g. `env.MY_WORKFLOW.create({ params })`) in both dev and production.
 
-Both the dev handler and the production SvelteKit route need to do the same thing: validate the upgrade header and forward the request to a Durable Object. Extract that into a small helper so the two callers stay in sync:
-
-```typescript
-// src/lib/server/forwardWebSocket.ts
-export async function forwardWebSocket<T extends Rpc.DurableObjectBranded | undefined>(
-  request: Request,
-  namespace: DurableObjectNamespace<T>,
-  name: string
-): Promise<Response> {
-  if (request.headers.get('upgrade') !== 'websocket') {
-    return new Response('Expected WebSocket', { status: 426 });
-  }
-  const id = namespace.idFromName(name);
-  return namespace.get(id).fetch(request);
-}
-```
-
-The dev handler parses the URL and delegates. It's only used by the wrangler dev sidecar:
-
-```typescript
-// src/lib/server/devHandler.ts
-import { forwardWebSocket } from './forwardWebSocket';
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const match = new URL(request.url).pathname.match(/^\/ws\/(.+)$/);
-    if (!match) return new Response('Not found', { status: 404 });
-    return forwardWebSocket(request, env.MY_DO, match[1]);
-  }
-};
-```
-
-In production, the dev handler is *not* used — SvelteKit serves the same path through a `+server.ts` route, which delegates to the same helper:
-
-```typescript
-// src/routes/ws/[id]/+server.ts
-import { forwardWebSocket } from '$lib/server/forwardWebSocket';
-import type { RequestHandler } from './$types';
-
-export const GET: RequestHandler = ({ params, request, platform }) =>
-  forwardWebSocket(request, platform!.env.MY_DO, params.id);
-```
-
-Now any change to the upgrade-and-forward logic (auth, rate-limiting, response shape) lives in one place and applies to both dev and production.
+If clients need to talk directly to the dev sidecar over HTTP (e.g. WebSockets), also export a default fetch handler — see [WebSockets](#websockets) below.
 
 Add the plugin to your `vite.config.ts` **after** `sveltekit()`:
 
@@ -114,9 +70,108 @@ export default {
 };
 ```
 
-### Dev mode: connecting to Durable Objects
+The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads bindings, workflows, migrations, and compatibility settings from it. It overrides only the `main` entry point to point at your source entry.
 
-In dev mode, the plugin starts a wrangler dev server on a separate port and injects `__DEV_WORKER_PORT__` as a compile-time constant. Use it to connect your client:
+### Calling Workflows
+
+`+server.ts` calls workflows the same way in dev and production:
+
+```typescript
+export const POST: RequestHandler = async ({ params, request, platform }) => {
+  const userMessage = await request.text();
+  const instance = await platform!.env.MY_WORKFLOW.create({
+    params: { ... }
+  });
+  return new Response(instance.id);
+};
+```
+
+The sidecar runs the real `WorkflowEntrypoint` class; calls reach it via the `script_name` rewrite in the platform-proxy config. This requires `wrangler >= 4.98.0` ([cloudflare/workers-sdk#13863](https://github.com/cloudflare/workers-sdk/pull/13863)).
+
+### Testing the production build locally
+
+`vite dev` exercises your code via the wrangler-dev sidecar; it does *not* exercise the merged `_worker.js`. To verify the production wiring (named class exports + SvelteKit routes in the same worker), run wrangler against the build output:
+
+```bash
+pnpm build              # produces .svelte-kit/cloudflare/_worker.js with merged exports
+pnpm wrangler dev       # uses wrangler.jsonc → main: .svelte-kit/cloudflare/_worker.js
+```
+
+This serves the exact bundle that gets deployed, with local Durable Object storage. Exercise whichever route calls your binding (HTTP, WebSocket, whatever your app uses) and confirm the response — that proves the request flowed through the SvelteKit `+server.ts` and into your class.
+
+A handy shortcut is to add a `preview` script to `package.json`:
+
+```json
+{
+  "scripts": {
+    "preview": "wrangler dev"
+  }
+}
+```
+
+> Note: `vite preview` is *not* suitable here — it only serves static assets and cannot run Durable Objects. Always use `wrangler dev` to preview the production worker.
+
+## WebSockets
+
+`vite dev` doesn't proxy WebSocket upgrades to the wrangler-dev sidecar, so in dev mode the browser needs to connect to the sidecar directly. The plugin exposes the sidecar's port as a compile-time constant `__DEV_WORKER_PORT__` for exactly this.
+
+The pattern: one helper handles the upgrade-and-forward, called from both the dev sidecar's fetch handler and the production `+server.ts` route, so both code paths stay in sync.
+
+```typescript
+// src/lib/server/forwardWebSocket.ts
+export async function forwardWebSocket<T extends Rpc.DurableObjectBranded | undefined>(
+  request: Request,
+  namespace: DurableObjectNamespace<T>,
+  name: string
+): Promise<Response> {
+  if (request.headers.get('upgrade') !== 'websocket') {
+    return new Response('Expected WebSocket', { status: 426 });
+  }
+  const id = namespace.idFromName(name);
+  return namespace.get(id).fetch(request);
+}
+```
+
+The dev sidecar needs a default `fetch` handler to receive the direct connection:
+
+```typescript
+// src/lib/server/devHandler.ts
+import { forwardWebSocket } from './forwardWebSocket';
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const match = new URL(request.url).pathname.match(/^\/ws\/(.+)$/);
+    if (!match) return new Response('Not found', { status: 404 });
+    return forwardWebSocket(request, env.MY_DO, match[1]);
+  }
+};
+```
+
+Add it to the worker entry point as the default export:
+
+```typescript
+// src/lib/server/index.ts
+export { MyDurableObject } from './MyDurableObject';
+export { MyWorkflow } from './MyWorkflow';
+export { default } from './devHandler';
+```
+
+In production, the dev handler is *not* used — SvelteKit serves the same path through a `+server.ts` route, which delegates to the same helper:
+
+```typescript
+// src/routes/ws/[id]/+server.ts
+import { forwardWebSocket } from '$lib/server/forwardWebSocket';
+import type { RequestHandler } from './$types';
+
+export const GET: RequestHandler = ({ params, request, platform }) =>
+  forwardWebSocket(request, platform!.env.MY_DO, params.id);
+```
+
+Any change to the upgrade-and-forward logic (auth, rate-limiting, response shape) now lives in one place and applies to both dev and production.
+
+### Connecting from the client
+
+Use `__DEV_WORKER_PORT__` to pick between the sidecar (dev) and the SvelteKit route (production):
 
 ```typescript
 import { dev } from '$app/environment';
@@ -138,47 +193,6 @@ declare global {
   const __DEV_WORKER_PORT__: number;
 }
 ```
-
-The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads DO bindings, workflows, migrations, and compatibility settings from it. It overrides only the `main` entry point to point at your source entry.
-
-### Dev mode: calling Workflows
-
-`+server.ts` calls workflows the same way it does in production:
-
-```typescript
-export const POST: RequestHandler = async ({ params, request, platform }) => {
-  const userMessage = await request.text();
-  const instance = await platform!.env.MY_WORKFLOW.create({
-    params: { ... }
-  });
-  return new Response(instance.id);
-};
-```
-
-The sidecar runs the real `WorkflowEntrypoint` class; calls reach it via the `script_name` rewrite in the platform-proxy config. This requires `wrangler >= 4.98.0` ([cloudflare/workers-sdk#13863](https://github.com/cloudflare/workers-sdk/pull/13863)).
-
-### Testing the production build locally
-
-`vite dev` exercises the dev handler via the wrangler-dev sidecar; it does *not* exercise your `+server.ts` route or the merged `_worker.js`. To verify the production wiring (named DO exports + SvelteKit routes in the same worker), run wrangler against the build output:
-
-```bash
-pnpm build              # produces .svelte-kit/cloudflare/_worker.js with merged exports
-pnpm wrangler dev       # uses wrangler.jsonc → main: .svelte-kit/cloudflare/_worker.js
-```
-
-This serves the exact bundle that gets deployed, with local Durable Object storage. Connect a WebSocket client to `ws://localhost:8787/ws/<id>` and confirm you get a `101 Switching Protocols` response — that proves the request flowed through the SvelteKit `+server.ts` and into your DO.
-
-A handy shortcut is to add a `preview` script to `package.json`:
-
-```json
-{
-  "scripts": {
-    "preview": "wrangler dev"
-  }
-}
-```
-
-> Note: `vite preview` is *not* suitable here — it only serves static assets and cannot run Durable Objects. Always use `wrangler dev` to preview the production worker.
 
 ## Options
 
