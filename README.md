@@ -1,10 +1,20 @@
 # @oselvar/sveltekit-add-worker-exports
 
-A Vite plugin that makes Durable Objects and Workflows work with SvelteKit on Cloudflare, in both dev and production.
+A Vite plugin that makes any class-based Cloudflare Worker export (Durable Objects, Workflows, `WorkerEntrypoint` RPC, voice agents, …) work with SvelteKit on Cloudflare, in both dev and production.
 
-**Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires Durable Object and Workflow classes to be **named exports**. This plugin post-processes the build output to merge your named exports with SvelteKit's default export.
+**Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires class-based bindings (Durable Objects, Workflows, `WorkerEntrypoint`, etc.) to be **named exports**. This plugin post-processes the build output to merge your named exports with SvelteKit's default export.
 
-**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects or Workflows. This plugin starts a separate wrangler dev server that runs the real DO/Workflow worker with hot-reload. SvelteKit `+server.ts` handlers call DOs through `platform.env.MY_DO.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. Clients can also connect directly to the sidecar via WebSocket on a separate port (see below).
+**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects, Workflows, or other class-based bindings. This plugin starts a separate wrangler dev server that runs the real worker with hot-reload. SvelteKit `+server.ts` handlers call bindings through `platform.env.MY_BINDING.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. Clients can also connect directly to the sidecar via WebSocket on a separate port (see below).
+
+## What this works with
+
+The plugin is binding-agnostic: if Cloudflare resolves it through a named class export plus a `wrangler.jsonc` binding, the plugin handles it. Confirmed working:
+
+- Durable Objects
+- Workflows (`WorkflowEntrypoint`)
+- Voice agents
+
+It should also work with `WorkerEntrypoint` RPC and any future class-based export that follows the same export-plus-binding pattern. The examples below use Durable Objects and Workflows because they're the most common, but the wiring is the same for any class-based entrypoint — export the class from your entry point, declare the binding in `wrangler.jsonc`, and call it via `platform.env.MY_BINDING` in your routes.
 
 ## Install
 
@@ -229,7 +239,7 @@ Note: the `.types-worker-wrangler.jsonc` file is generated when the dev server s
 
 ## Why this exists
 
-SvelteKit's adapter-cloudflare does not support named exports from the worker entry point ([sveltejs/kit#1712](https://github.com/sveltejs/kit/issues/1712)). Additionally, `getPlatformProxy` (used for local dev) cannot run internal Durable Objects because it uses an empty worker script.
+SvelteKit's adapter-cloudflare does not support named exports from the worker entry point ([sveltejs/kit#1712](https://github.com/sveltejs/kit/issues/1712)) — which blocks every class-based Cloudflare binding, not just Durable Objects. Additionally, `getPlatformProxy` (used for local dev) cannot run internal class-based bindings because it uses an empty worker script.
 
 ## License
 
