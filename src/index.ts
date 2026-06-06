@@ -24,6 +24,7 @@
 import { build } from 'esbuild';
 import { existsSync } from 'node:fs';
 import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
+import { builtinModules as NODE_BUILTINS } from 'node:module';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
@@ -31,17 +32,6 @@ import type { NodeJSCompatMode } from 'miniflare';
 import type { Plugin } from 'vite';
 
 const DEFAULT_DEV_PORT = 8787;
-
-const NODE_BUILTINS = [
-	'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
-	'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain',
-	'events', 'fs', 'fs/promises', 'http', 'http2', 'https', 'inspector',
-	'module', 'net', 'os', 'path', 'path/posix', 'path/win32', 'perf_hooks',
-	'process', 'punycode', 'querystring', 'readline', 'repl', 'stream',
-	'stream/consumers', 'stream/promises', 'stream/web', 'string_decoder',
-	'sys', 'timers', 'timers/promises', 'tls', 'trace_events', 'tty', 'url',
-	'util', 'util/types', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib'
-];
 
 /**
  * Mirrors wrangler's internal getRegistryPath() — wrangler doesn't export it.
@@ -187,18 +177,26 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 		async configureServer(server) {
 			const { unstable_startWorker } = await import('wrangler');
 			const rawJson = await readRawConfig();
+			const baseConfig = parseJsonc(rawJson);
 
-			const sidecarName = `${parseJsonc(rawJson).name ?? 'sveltekit'}-dev-worker`;
+			const sidecarName = `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
 
 			// Copy the raw config and override main, name, and dev port
-			const devConfig = parseJsonc(rawJson);
+			const devConfig = structuredClone(baseConfig);
 			devConfig.name = sidecarName;
 			devConfig.main = options.entryPoint;
 			devConfig.dev = { ...devConfig.dev, port: devPort };
 			delete devConfig.assets;
 
+			// Serialised dev config is reused verbatim as the `wrangler types`
+			// config — the user can run `wrangler types --config
+			// .types-worker-wrangler.jsonc` to get typed bindings like
+			// DurableObjectNamespace<EchoDO> resolved from the source entry.
+			const devConfigJson = JSON.stringify(devConfig, null, '\t');
 			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
-			await writeFile(tempConfigPath, JSON.stringify(devConfig, null, '\t'));
+			typesConfigPath = resolve('.types-worker-wrangler.jsonc');
+			await writeFile(tempConfigPath, devConfigJson);
+			await writeFile(typesConfigPath, devConfigJson);
 
 			// Write a wrangler config for adapter-cloudflare's getPlatformProxy
 			// (used by vite dev for platform.env). It can't run internal DOs or
@@ -207,7 +205,7 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			// (script_name pointing at the sidecar) so platform.env.MY_DO and
 			// platform.env.MY_WORKFLOW calls in +server.ts reach the sidecar via
 			// the wrangler dev registry.
-			const proxyConfig = parseJsonc(rawJson);
+			const proxyConfig = structuredClone(baseConfig);
 			if (proxyConfig.durable_objects?.bindings) {
 				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.map(
 					(b: { script_name?: string }) =>
@@ -224,18 +222,6 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
 			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
-
-			// A third config used only by `wrangler types`. Identical to the dev
-			// config but kept separate so the user can run `wrangler types
-			// --config .types-worker-wrangler.jsonc` to get typed bindings like
-			// DurableObjectNamespace<EchoDO> resolved from the source entry.
-			const typesConfig = parseJsonc(rawJson);
-			typesConfig.name = sidecarName;
-			typesConfig.main = options.entryPoint;
-			typesConfig.dev = { ...typesConfig.dev, port: devPort };
-			delete typesConfig.assets;
-			typesConfigPath = resolve('.types-worker-wrangler.jsonc');
-			await writeFile(typesConfigPath, JSON.stringify(typesConfig, null, '\t'));
 
 			worker = await unstable_startWorker({
 				config: tempConfigPath,
