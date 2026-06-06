@@ -255,6 +255,15 @@ Note: the `.types-worker-wrangler.jsonc` file is generated when the dev server s
 
 SvelteKit's adapter-cloudflare does not support named exports from the worker entry point ([sveltejs/kit#1712](https://github.com/sveltejs/kit/issues/1712)) — which blocks every class-based Cloudflare binding, not just Durable Objects. Additionally, `getPlatformProxy` (used for local dev) cannot run internal class-based bindings because it uses an empty worker script.
 
+## When this plugin can be retired
+
+This plugin is a stopgap. It becomes redundant once the SvelteKit and Cloudflare upstream tracks converge. Watch:
+
+- [sveltejs/kit#15627](https://github.com/sveltejs/kit/pull/15627) — replaces `adapter-cloudflare`'s custom build with `@cloudflare/vite-plugin`. Closes [#1712](https://github.com/sveltejs/kit/issues/1712), [#10496](https://github.com/sveltejs/kit/issues/10496), [#13692](https://github.com/sveltejs/kit/issues/13692), [#2963](https://github.com/sveltejs/kit/issues/2963), [#13300](https://github.com/sveltejs/kit/issues/13300), [#1519](https://github.com/sveltejs/kit/issues/1519). Open as of writing.
+- [cloudflare/workers-sdk#14013](https://github.com/cloudflare/workers-sdk/pull/14013) — shipped in [`@cloudflare/vite-plugin@1.40.0`](https://github.com/cloudflare/workers-sdk/blob/main/packages/vite-plugin-cloudflare/CHANGELOG.md), introduces the experimental `cloudflare.config.ts` flow with a typed `exports` API. The Durable Object branch currently throws `"Durable Object exports are not currently supported."` (see [`convert.ts`](https://github.com/cloudflare/workers-sdk/blob/main/packages/config/src/convert.ts)) and Workflows are commented out.
+
+This plugin can be deleted once `sveltejs/kit#15627` lands AND `@cloudflare/vite-plugin` ships real Durable Object / Workflow named-export emission AND `auxiliaryWorkers` works with the new config flow.
+
 ## License
 
 MIT
