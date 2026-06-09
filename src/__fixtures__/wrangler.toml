@@ -1,0 +1,38 @@
+name = "fixture-worker"
+main = "src/entry.ts"
+compatibility_date = "2026-05-13"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+binding = "ASSETS"
+directory = "dist"
+
+[dev]
+port = 8788
+
+[durable_objects]
+bindings = [
+	{ name = "ECHO", class_name = "EchoDO" },
+]
+
+[[workflows]]
+name = "bot-workflow"
+binding = "BOT_WORKFLOW"
+class_name = "BotWorkflow"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["EchoDO"]
+
+[env.staging]
+name = "fixture-worker-staging"
+
+[env.staging.durable_objects]
+bindings = [
+	{ name = "ECHO", class_name = "EchoDO" },
+]
+
+[[env.staging.workflows]]
+name = "bot-workflow"
+binding = "BOT_WORKFLOW"
+class_name = "BotWorkflow"
