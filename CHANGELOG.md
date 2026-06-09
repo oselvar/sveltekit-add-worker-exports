@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v0.3.4...v1.0.0) (2026-06-09)
+
+### ⚠ BREAKING CHANGES
+
+* `import { handle } from '@oselvar/sveltekit-add-worker-exports/hooks'`
+no longer resolves. Remove the import from your `src/hooks.server.ts`.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+### Features
+
+* merge non-fetch handlers and enable scheduled in dev ([a1dbc9a](https://github.com/oselvar/sveltekit-add-worker-exports/commit/a1dbc9ac7a42e27e63b2353df2a1c7028b6616cd)), closes [#3](https://github.com/oselvar/sveltekit-add-worker-exports/issues/3)
+* remove deprecated /hooks subpath export ([3b38ede](https://github.com/oselvar/sveltekit-add-worker-exports/commit/3b38ede7640bf01fc3ae3c077c2c9543e003f7e8)), closes [cloudflare/workers-sdk#13863](https://github.com/cloudflare/workers-sdk/issues/13863)
+
+### Bug Fixes
+
+* honor CLOUDFLARE_ENV in dev sidecar script_name rewrite ([42fb0a5](https://github.com/oselvar/sveltekit-add-worker-exports/commit/42fb0a5729c026bc43886239a4a97fbfed3eebc1)), closes [#2](https://github.com/oselvar/sveltekit-add-worker-exports/issues/2)
+
 ## [0.3.4](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v0.3.3...v0.3.4) (2026-06-05)
 
 ## [0.3.3](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v0.3.2...v0.3.3) (2026-06-04)
