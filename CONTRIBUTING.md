@@ -69,6 +69,8 @@ This repository follows [Conventional Commits](https://www.conventionalcommits.o
 
 Scope is optional (`feat(dev): ...`). Use the imperative mood in the subject.
 
+**Do not edit `CHANGELOG.md` manually.** It is generated output: release-it prepends a new section to it on each release, sourced from the conventional commit messages since the last tag. A manually-added `## [Unreleased]` block survives the prepend and ends up duplicated alongside the auto-generated entry. Put the user-facing notes in the commit body instead.
+
 ## Releasing
 
 We use [release-it](https://github.com/release-it/release-it) with the [`@release-it/conventional-changelog`](https://github.com/release-it/conventional-changelog) plugin. It determines the version bump from the commits since the last tag, prepends a new entry to `CHANGELOG.md`, runs `pnpm build`, publishes to npm, tags, pushes, and creates a GitHub release with the same notes:
