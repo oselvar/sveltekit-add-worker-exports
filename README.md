@@ -1,20 +1,21 @@
 # @oselvar/sveltekit-add-worker-exports
 
-A Vite plugin that makes any class-based Cloudflare Worker export (Durable Objects, Workflows, `WorkerEntrypoint` RPC, voice agents, …) work with SvelteKit on Cloudflare, in both dev and production.
+A Vite plugin that makes any class-based Cloudflare Worker export (Durable Objects, Workflows, `WorkerEntrypoint` RPC, voice agents, …) and any non-fetch handler (`scheduled`, `queue`, `email`, `tail`, `trace`) work with SvelteKit on Cloudflare, in both dev and production.
 
-**Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires class-based bindings (Durable Objects, Workflows, `WorkerEntrypoint`, etc.) to be **named exports**. This plugin post-processes the build output to merge your named exports with SvelteKit's default export.
+**Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires class-based bindings (Durable Objects, Workflows, `WorkerEntrypoint`, etc.) to be **named exports**, and non-fetch handlers (`scheduled`, `queue`, `email`, …) to be **methods on the default export**. This plugin post-processes the build output to merge both kinds onto SvelteKit's worker.
 
-**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects, Workflows, or other class-based bindings. This plugin starts a separate wrangler dev server that runs the real worker with hot-reload. SvelteKit `+server.ts` handlers call bindings through `platform.env.MY_BINDING.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. WebSocket clients in dev connect to the sidecar directly on a separate port — see [WebSockets](#websockets) below.
+**Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects, Workflows, or other class-based bindings. This plugin starts a separate wrangler dev server that runs the real worker with hot-reload. SvelteKit `+server.ts` handlers call bindings through `platform.env.MY_BINDING.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. WebSocket clients in dev connect to the sidecar directly on a separate port — see [WebSockets](#websockets) below. The sidecar also exposes `/__scheduled` so `scheduled` handlers can be fired manually in dev — see [Scheduled, queue, email, tail handlers](#scheduled-queue-email-tail-handlers).
 
 ## What this works with
 
-The plugin is binding-agnostic: if Cloudflare resolves it through a named class export plus a `wrangler.jsonc` binding, the plugin handles it. Confirmed working:
+The plugin is binding-agnostic: if Cloudflare resolves it through a named class export plus a `wrangler.jsonc` binding, or through a method on the default export, the plugin handles it. Confirmed working:
 
 - Durable Objects
 - Workflows (`WorkflowEntrypoint`)
 - Voice agents
+- `scheduled` (cron triggers) — see [Scheduled, queue, email, tail handlers](#scheduled-queue-email-tail-handlers)
 
-It should also work with `WorkerEntrypoint` RPC and any future class-based export that follows the same export-plus-binding pattern. The examples below use Durable Objects and Workflows because they're the most common, but the wiring is the same for any class-based entrypoint — export the class from your entry point, declare the binding in `wrangler.jsonc`, and call it via `platform.env.MY_BINDING` in your routes.
+It should also work with `WorkerEntrypoint` RPC and any future class-based export that follows the same export-plus-binding pattern, as well as `queue`, `email`, `tail`, and `trace` — anything Cloudflare invokes as a method on the worker's default export. The examples below use Durable Objects and Workflows because they're the most common, but the wiring is the same for any class-based entrypoint — export the class from your entry point, declare the binding in `wrangler.jsonc`, and call it via `platform.env.MY_BINDING` in your routes.
 
 ## Install
 
