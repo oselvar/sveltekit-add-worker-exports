@@ -13,6 +13,16 @@
   invoked via `curl http://localhost:8787/__scheduled?cron=...` — wrangler
   dev never auto-fires crons.
 
+### Fixed
+
+- Honor `CLOUDFLARE_ENV` when rewriting `script_name` in the platform-proxy
+  config. Wrangler suffixes the sidecar's registered name with the env name,
+  so cross-worker bindings now reference the suffixed name and resolve via
+  the dev registry. The plugin also patches the active `env[envName]` block
+  instead of the top-level, since per-env `durable_objects` / `workflows`
+  arrays wholly override the top-level rather than merging.
+  ([#2](https://github.com/oselvar/sveltekit-add-worker-exports/issues/2))
+
 ### Changed
 
 - Consolidated the example's WebSocket `fetch` and new `scheduled` handler

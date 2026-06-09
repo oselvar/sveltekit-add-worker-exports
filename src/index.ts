@@ -194,6 +194,14 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 
 			const sidecarName = `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
 
+			// When CLOUDFLARE_ENV is set, wrangler suffixes the registered
+			// worker name with `-${env}` (see appendEnvName in wrangler), so
+			// cross-worker `script_name` lookups must use the suffixed name.
+			// We don't suffix `devConfig.name` itself — wrangler does that
+			// based on CLOUDFLARE_ENV when starting the sidecar.
+			const envName = process.env.CLOUDFLARE_ENV;
+			const registeredSidecarName = envName ? `${sidecarName}-${envName}` : sidecarName;
+
 			// Copy the raw config and override main, name, and dev port
 			const devConfig = structuredClone(baseConfig);
 			devConfig.name = sidecarName;
@@ -219,19 +227,30 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			// platform.env.MY_WORKFLOW calls in +server.ts reach the sidecar via
 			// the wrangler dev registry.
 			const proxyConfig = structuredClone(baseConfig);
-			if (proxyConfig.durable_objects?.bindings) {
-				proxyConfig.durable_objects.bindings = proxyConfig.durable_objects.bindings.map(
+
+			// Wrangler does not merge per-env `durable_objects`/`workflows`/
+			// `migrations` arrays with the top-level — the selected env wholly
+			// overrides them. So we patch only the scope wrangler will actually
+			// use: top-level when no env, env[envName] when CLOUDFLARE_ENV is set.
+			const activeScope = envName ? proxyConfig.env?.[envName] : proxyConfig;
+			if (envName && !activeScope) {
+				throw new Error(
+					`CLOUDFLARE_ENV="${envName}" but no \`env.${envName}\` block in the wrangler config`
+				);
+			}
+			if (activeScope.durable_objects?.bindings) {
+				activeScope.durable_objects.bindings = activeScope.durable_objects.bindings.map(
 					(b: { script_name?: string }) =>
-						b.script_name ? b : { ...b, script_name: sidecarName }
+						b.script_name ? b : { ...b, script_name: registeredSidecarName }
 				);
 			}
-			if (Array.isArray(proxyConfig.workflows)) {
-				proxyConfig.workflows = proxyConfig.workflows.map(
+			if (Array.isArray(activeScope.workflows)) {
+				activeScope.workflows = activeScope.workflows.map(
 					(w: { script_name?: string }) =>
-						w.script_name ? w : { ...w, script_name: sidecarName }
+						w.script_name ? w : { ...w, script_name: registeredSidecarName }
 				);
 			}
-			delete proxyConfig.migrations;
+			delete activeScope.migrations;
 
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
 			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
