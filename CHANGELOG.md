@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v1.0.0...v2.0.0) (2026-06-09)
+
+### ⚠ BREAKING CHANGES
+
+* drop redundant .types-worker-wrangler.jsonc
+
+### Features
+
+* support wrangler.toml in addition to wrangler.jsonc ([9dd7917](https://github.com/oselvar/sveltekit-add-worker-exports/commit/9dd791736621c1de56ad1ceed723228bbb32f791))
+
+### Bug Fixes
+
+* drop .ts import extension and stray eslint-disable ([0146b06](https://github.com/oselvar/sveltekit-add-worker-exports/commit/0146b065fedb8d5363243114fe92fe2fe258d447))
+* exclude test files from tsc emit ([22f1775](https://github.com/oselvar/sveltekit-add-worker-exports/commit/22f17754367840d3f6fa908a8ced190892db9dc8))
+
+### Code Refactoring
+
+* drop redundant .types-worker-wrangler.jsonc ([8d6172c](https://github.com/oselvar/sveltekit-add-worker-exports/commit/8d6172cd3791fce3b406290beef8eba45fadf8b9))
+
 ## [1.0.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v0.3.4...v1.0.0) (2026-06-09)
 
 ### ⚠ BREAKING CHANGES
