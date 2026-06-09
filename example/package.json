@@ -6,7 +6,7 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "wrangler dev",
-		"types": "wrangler types --config .types-worker-wrangler.jsonc",
+		"types": "wrangler types --config .dev-worker-wrangler.jsonc",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"

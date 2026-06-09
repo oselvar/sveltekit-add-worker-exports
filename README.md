@@ -255,10 +255,10 @@ The plugin reads your wrangler config, creates a temporary config with `main` po
 
 ### Generating typed bindings
 
-The dev plugin creates a temporary `.types-worker-wrangler.jsonc` with `main` pointing to your source entry point. Use it to generate fully generic Cloudflare types:
+The dev plugin creates a temporary `.dev-worker-wrangler.jsonc` with `main` pointing to your source entry point. Use it to generate fully generic Cloudflare types:
 
 ```bash
-wrangler types --config .types-worker-wrangler.jsonc
+wrangler types --config .dev-worker-wrangler.jsonc
 ```
 
 This produces typed DO bindings like `DurableObjectNamespace<MyDurableObject>` instead of the untyped `DurableObjectNamespace` you get from the default `wrangler.jsonc` (whose `main` points to the SvelteKit build output, which doesn't exist during dev).
@@ -268,12 +268,12 @@ Add this to your `package.json` scripts for convenience:
 ```json
 {
   "scripts": {
-    "types": "wrangler types --config .types-worker-wrangler.jsonc"
+    "types": "wrangler types --config .dev-worker-wrangler.jsonc"
   }
 }
 ```
 
-Note: the `.types-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`.
+Note: the `.dev-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`.
 
 ## Why this exists
 
@@ -287,7 +287,7 @@ Once that PR lands, `@cloudflare/vite-plugin` handles everything this plugin doe
 
 - **Build:** the plugin bundles a single worker entry that exports `default` + named classes directly — no `_worker.js` post-processing, no second esbuild pass to merge exports.
 - **Dev:** Durable Objects and Workflows run in the same worker as SvelteKit on real workerd, hot-reloaded — no sidecar via `unstable_startWorker`, no platform-proxy `script_name` rewrite, no separate WebSocket port, no dev registry routing.
-- **Types:** `wrangler types` resolves typed bindings (`DurableObjectNamespace<MyDO>`) from the user entry, no `.types-worker-wrangler.jsonc` indirection.
+- **Types:** `wrangler types` resolves typed bindings (`DurableObjectNamespace<MyDO>`) from the user entry, no `.dev-worker-wrangler.jsonc` indirection.
 
 Side note: [cloudflare/workers-sdk#14013](https://github.com/cloudflare/workers-sdk/pull/14013) introduces an experimental `cloudflare.config.ts` flow (typed `exports` API) where the Durable Object branch currently throws `"Durable Object exports are not currently supported."` (see [`convert.ts`](https://github.com/cloudflare/workers-sdk/blob/main/packages/config/src/convert.ts)) and Workflows are commented out. This is a separate, opt-in config surface — the standard `wrangler.jsonc` path that kit#15627 uses already supports DO and Workflow named exports, so this limitation does **not** gate retirement.
 
