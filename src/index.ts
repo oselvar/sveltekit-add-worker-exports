@@ -29,7 +29,19 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { getNodeCompat, type NodeJSCompatMode } from 'miniflare';
+import { parse as parseToml } from 'smol-toml';
 import type { Plugin } from 'vite';
+
+/**
+ * Parses a wrangler config file. Picks the parser by extension:
+ * `.toml` uses smol-toml; everything else (`.jsonc`, `.json`, or no
+ * extension) uses jsonc-parser, which handles plain JSON fine.
+ *
+ * Exported for tests; the dev plugin uses it via the configureServer hook.
+ */
+export function parseWranglerConfig(path: string, contents: string): unknown {
+	return path.endsWith('.toml') ? parseToml(contents) : parseJsonc(contents);
+}
 
 const DEFAULT_DEV_PORT = 8787;
 
@@ -165,14 +177,15 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 	let worker: { dispose: () => Promise<void> } | null = null;
 	let tempConfigPath: string | null = null;
 	let proxyConfigPath: string | null = null;
-	let typesConfigPath: string | null = null;
 
-	async function readRawConfig(): Promise<string> {
+	async function readRawConfig(): Promise<{ path: string; contents: string }> {
 		const { unstable_readConfig } = await import('wrangler');
 		const parsed = unstable_readConfig(
 			options.wranglerConfig ? { config: options.wranglerConfig } : {}
 		);
-		return readFile(parsed.configPath!, 'utf-8');
+		const path = parsed.configPath!;
+		const contents = await readFile(path, 'utf-8');
+		return { path, contents };
 	}
 
 	return {
@@ -189,8 +202,9 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 
 		async configureServer(server) {
 			const { unstable_startWorker } = await import('wrangler');
-			const rawJson = await readRawConfig();
-			const baseConfig = parseJsonc(rawJson);
+			const { path: configPath, contents } = await readRawConfig();
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const baseConfig = parseWranglerConfig(configPath, contents) as any;
 
 			const sidecarName = `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
 
@@ -209,15 +223,12 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			devConfig.dev = { ...devConfig.dev, port: devPort };
 			delete devConfig.assets;
 
-			// Serialised dev config is reused verbatim as the `wrangler types`
-			// config — the user can run `wrangler types --config
-			// .types-worker-wrangler.jsonc` to get typed bindings like
+			// The user can also pass this file to `wrangler types --config
+			// .dev-worker-wrangler.jsonc` to get typed bindings like
 			// DurableObjectNamespace<EchoDO> resolved from the source entry.
 			const devConfigJson = JSON.stringify(devConfig, null, '\t');
 			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
-			typesConfigPath = resolve('.types-worker-wrangler.jsonc');
 			await writeFile(tempConfigPath, devConfigJson);
-			await writeFile(typesConfigPath, devConfigJson);
 
 			// Write a wrangler config for adapter-cloudflare's getPlatformProxy
 			// (used by vite dev for platform.env). It can't run internal DOs or
@@ -282,9 +293,6 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				}
 				if (proxyConfigPath) {
 					await unlink(proxyConfigPath).catch(() => {});
-				}
-				if (typesConfigPath) {
-					await unlink(typesConfigPath).catch(() => {});
 				}
 			});
 		}
