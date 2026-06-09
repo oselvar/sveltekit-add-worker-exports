@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseWranglerConfig } from './index.ts';
+import { parseWranglerConfig } from './index';
 
 const fixturesDir = join(import.meta.dirname, '__fixtures__');
 

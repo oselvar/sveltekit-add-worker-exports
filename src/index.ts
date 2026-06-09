@@ -203,7 +203,6 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 		async configureServer(server) {
 			const { unstable_startWorker } = await import('wrangler');
 			const { path: configPath, contents } = await readRawConfig();
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const baseConfig = parseWranglerConfig(configPath, contents) as any;
 
 			const sidecarName = `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
