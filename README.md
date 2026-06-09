@@ -111,6 +111,32 @@ A handy shortcut is to add a `preview` script to `package.json`:
 
 > Note: `vite preview` is *not* suitable here — it only serves static assets and cannot run Durable Objects. Always use `wrangler dev` to preview the production worker.
 
+## Scheduled, queue, email, tail handlers
+
+Cloudflare invokes non-fetch handlers (`scheduled`, `queue`, `email`, `tail`, `trace`) as methods on the worker's default export, not as named exports. Put them on the `default` export of your entry point and the plugin merges them onto the production worker's default alongside SvelteKit's fetch handler:
+
+```typescript
+// src/lib/server/index.ts
+export { MyDurableObject } from './MyDurableObject';
+export default {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    // runs from the cron triggers in wrangler.jsonc
+  }
+};
+```
+
+If you also need a dev-only `fetch` (e.g. for WebSocket upgrades), put it on the same default — the plugin keeps the non-`fetch` handlers and drops `fetch` in production. See [WebSockets](#websockets) below for the full shape.
+
+### Firing scheduled in dev
+
+Wrangler dev never auto-fires crons — `triggers.crons` in `wrangler.jsonc` is only honored on the real Cloudflare edge. The plugin enables `testScheduled` on the sidecar so you can invoke the handler manually:
+
+```bash
+curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
+```
+
+The `cron` query parameter (URL-encoded — `+` instead of spaces) is what gets passed to your handler as `event.cron`. Stdout from the sidecar lands in the vite terminal.
+
 ## WebSockets
 
 `vite dev` doesn't proxy WebSocket upgrades to the wrangler-dev sidecar, so in dev mode the browser needs to connect to the sidecar directly. The plugin exposes the sidecar's port as a compile-time constant `__DEV_WORKER_PORT__` for exactly this.
@@ -132,11 +158,14 @@ export async function forwardWebSocket<T extends Rpc.DurableObjectBranded | unde
 }
 ```
 
-The dev sidecar needs a default `fetch` handler to receive the direct connection:
+Put a `fetch` on the entry's default export so the dev sidecar can receive the direct connection:
 
 ```typescript
-// src/lib/server/devHandler.ts
+// src/lib/server/index.ts
 import { forwardWebSocket } from './forwardWebSocket';
+
+export { MyDurableObject } from './MyDurableObject';
+export { MyWorkflow } from './MyWorkflow';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -147,16 +176,7 @@ export default {
 };
 ```
 
-Add it to the worker entry point as the default export:
-
-```typescript
-// src/lib/server/index.ts
-export { MyDurableObject } from './MyDurableObject';
-export { MyWorkflow } from './MyWorkflow';
-export { default } from './devHandler';
-```
-
-In production, the dev handler is *not* used — SvelteKit serves the same path through a `+server.ts` route, which delegates to the same helper:
+In production this `fetch` is dropped (SvelteKit owns request handling — the plugin's merge strips it). The same path is served through a `+server.ts` route that delegates to the same helper:
 
 ```typescript
 // src/routes/ws/[id]/+server.ts
@@ -211,11 +231,14 @@ The plugin runs in the `closeBundle` hook (after SvelteKit's adapter has generat
 
 1. Bundles your `entryPoint` with esbuild into `_extra_exports.js`
 2. Renames the original `_worker.js` to `_sveltekit_worker.js`
-3. Creates a new `_worker.js` that re-exports both:
+3. Creates a new `_worker.js` that re-exports the named exports and merges the entry's `default` handlers (`scheduled`, `queue`, `email`, …) onto the SvelteKit default:
 
 ```javascript
-export { default } from './_sveltekit_worker.js';
+import sveltekitWorker from './_sveltekit_worker.js';
+import * as extra from './_extra_exports.js';
 export * from './_extra_exports.js';
+const { fetch: _ignored, ...extraHandlers } = extra.default ?? {};
+export default { ...sveltekitWorker, ...extraHandlers };
 ```
 
 The operation is idempotent -- if `_sveltekit_worker.js` already exists, the plugin skips.

@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Merge non-fetch handlers (`scheduled`, `queue`, `email`, `tail`, `trace`)
+  from the entry's `default` export onto the production worker's default
+  export. Previously these were silently dropped because Cloudflare invokes
+  them as methods on the default object, not as named exports.
+  ([#3](https://github.com/oselvar/sveltekit-add-worker-exports/issues/3))
+- Enabled `testScheduled` on the dev sidecar so `scheduled` handlers can be
+  invoked via `curl http://localhost:8787/__scheduled?cron=...` — wrangler
+  dev never auto-fires crons.
+
+### Changed
+
+- Consolidated the example's WebSocket `fetch` and new `scheduled` handler
+  into a single `default` export in `src/lib/server/index.ts`. Removed the
+  `devHandler.ts` indirection, since `scheduled` makes "dev" a misnomer.
+
 ## [0.3.4](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v0.3.3...v0.3.4) (2026-06-05)
 
 ## [0.3.3](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v0.3.2...v0.3.3) (2026-06-04)

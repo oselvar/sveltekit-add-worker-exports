@@ -137,11 +137,24 @@ function buildPlugin(options: AddWorkerExportsOptions): Plugin {
 				outfile: exportsPath
 			});
 
-			// Rename original worker and create merged entry point
+			// Rename original worker and create merged entry point.
+			//
+			// `export *` re-exports named exports only, so class-based bindings
+			// (DOs, Workflows, WorkerEntrypoint) from `_extra_exports.js` flow
+			// through. Non-fetch handlers (scheduled, queue, email, tail, trace)
+			// live on the user entry's `default` export — Cloudflare invokes
+			// them as methods on the worker's default object, not as named
+			// exports — so we spread them onto the SvelteKit default. `fetch`
+			// is dropped from the user default because SvelteKit owns request
+			// handling in production.
 			await rename(workerPath, sveltekitPath);
 			await writeFile(
 				workerPath,
-				`export { default } from './_sveltekit_worker.js';\nexport * from './_extra_exports.js';\n`
+				`import sveltekitWorker from './_sveltekit_worker.js';\n` +
+					`import * as extra from './_extra_exports.js';\n` +
+					`export * from './_extra_exports.js';\n` +
+					`const { fetch: _ignored, ...extraHandlers } = extra.default ?? {};\n` +
+					`export default { ...sveltekitWorker, ...extraHandlers };\n`
 			);
 		}
 	};
@@ -225,7 +238,12 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 
 			worker = await unstable_startWorker({
 				config: tempConfigPath,
-				dev: { registry: getWranglerRegistryPath() },
+				// `testScheduled` mounts a `/__scheduled` endpoint on the sidecar
+				// so cron handlers can be invoked manually in dev — wrangler dev
+				// never auto-fires crons. Curl
+				// `http://localhost:<devPort>/__scheduled?cron=*+*+*+*+*` to
+				// trigger your `scheduled` handler.
+				dev: { registry: getWranglerRegistryPath(), testScheduled: true },
 				build: {
 					nodejsCompatMode: (parsedConfig) =>
 						getNodejsCompatMode(
