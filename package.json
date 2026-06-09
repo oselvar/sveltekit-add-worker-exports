@@ -54,6 +54,7 @@
 		"release": "release-it"
 	},
 	"dependencies": {
-		"jsonc-parser": "^3.3.1"
+		"jsonc-parser": "^3.3.1",
+		"smol-toml": "^1.6.1"
 	}
 }
