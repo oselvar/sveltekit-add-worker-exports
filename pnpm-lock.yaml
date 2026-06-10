@@ -19,16 +19,16 @@ importers:
         specifier: ^11.0.1
         version: 11.0.1(conventional-commits-filter@5.0.0)(conventional-commits-parser@6.4.0)(release-it@20.2.0(@types/node@25.9.2))
       '@sveltejs/kit':
-        specifier: ^2.62.0
+        specifier: ^2.64.0
         version: 2.64.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@2.7.0)))(svelte@5.55.9)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@2.7.0))
       '@types/node':
-        specifier: ^25.9.1
+        specifier: ^25.9.2
         version: 25.9.2
       esbuild:
         specifier: ^0.28.0
         version: 0.28.0
       miniflare:
-        specifier: ^4.20260601.0
+        specifier: ^4.20260609.0
         version: 4.20260609.0
       release-it:
         specifier: ^20.2.0
