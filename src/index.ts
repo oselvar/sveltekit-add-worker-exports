@@ -28,7 +28,7 @@ import { builtinModules as NODE_BUILTINS } from 'node:module';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
-import { getNodeCompat, type NodeJSCompatMode } from 'miniflare';
+import { getNodeCompat, WorkerdStructuredLog, type NodeJSCompatMode } from 'miniflare';
 import { parse as parseToml } from 'smol-toml';
 import type { Plugin } from 'vite';
 
@@ -80,6 +80,13 @@ export interface AddWorkerExportsOptions {
 	wranglerConfig?: string;
 	/** Port for the dev worker server (default: 8787) */
 	devPort?: number;
+	/**
+	 * Handles each structured log line emitted by the sidecar worker (one entry
+	 * per `console.log` / `console.error` / etc. call). When omitted, a default
+	 * handler prints each line to the host's stdout (or stderr for `error`
+	 * level) prefixed with the sidecar name. Pass `() => {}` to silence.
+	 */
+	structuredLogsHandler?: (log: { level: string; message: string; timestamp: number }) => void;
 }
 
 /**
@@ -265,6 +272,9 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
 			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
 
+			const structuredLogsHandler =
+				options.structuredLogsHandler ?? makeDefaultWorkerLogHandler(sidecarName);
+
 			worker = await unstable_startWorker({
 				config: tempConfigPath,
 				// `testScheduled` mounts a `/__scheduled` endpoint on the sidecar
@@ -272,7 +282,19 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				// never auto-fires crons. Curl
 				// `http://localhost:<devPort>/__scheduled?cron=*+*+*+*+*` to
 				// trigger your `scheduled` handler.
-				dev: { registry: getWranglerRegistryPath(), testScheduled: true },
+				//
+				// `structuredLogsHandler` (added in wrangler 4.99) routes each
+				// worker log line through `onWorkerLog`. Without it, wrangler
+				// pipes worker logs through its own Logger which can get
+				// swallowed when `unstable_startWorker` is driven
+				// programmatically — `console.log` inside the worker
+				// disappears. Cast is needed because peer wrangler types may
+				// be older.
+				dev: {
+					registry: getWranglerRegistryPath(),
+					testScheduled: true,
+					structuredLogsHandler
+				} as Parameters<typeof unstable_startWorker>[0]['dev'],
 				build: {
 					nodejsCompatMode: (parsedConfig) =>
 						getNodejsCompatMode(
@@ -295,6 +317,21 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				}
 			});
 		}
+	};
+}
+
+/**
+ * Default handler for sidecar worker logs. Writes each line to stdout (or
+ * stderr for `error` level) tagged with the sidecar name so it's obvious
+ * which process produced it.
+ */
+function makeDefaultWorkerLogHandler(
+	sidecarName: string
+): (log: WorkerdStructuredLog) => void {
+	const prefix = `[${sidecarName}]`;
+	return ({ level, message }) => {
+		const stream = level === 'error' ? process.stderr : process.stdout;
+		stream.write(`${prefix} ${message}\n`);
 	};
 }
 
