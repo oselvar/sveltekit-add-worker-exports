@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.0.0...v2.1.0) (2026-06-10)
+
+### Features
+
+* add structuredLogsHandler option for sidecar worker logs ([417d868](https://github.com/oselvar/sveltekit-add-worker-exports/commit/417d8682950197b1f0a83e6523e0129ead9ceda8))
+
 ## [2.0.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v1.0.0...v2.0.0) (2026-06-09)
 
 ### ⚠ BREAKING CHANGES
