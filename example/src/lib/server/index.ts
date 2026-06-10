@@ -12,6 +12,7 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const match = new URL(request.url).pathname.match(/^\/ws\/(.+)$/);
 		if (!match) return new Response('Not found', { status: 404 });
+		console.log(`WebSocket upgrade for room "${match[1]}"`);
 		return forwardWebSocket(request, env.ECHO, match[1]);
 	},
 	async scheduled(event: ScheduledEvent, _env: Env, _ctx: ExecutionContext): Promise<void> {

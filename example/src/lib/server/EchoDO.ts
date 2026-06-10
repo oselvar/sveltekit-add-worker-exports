@@ -18,16 +18,17 @@ export class EchoDO extends DurableObject<Env> {
 	}
 
 	async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-		// Broadcast the user's message to all connected clients
+		const { roomName } = (ws.deserializeAttachment() as Attachment | null) ?? {
+			roomName: 'default'
+		};
+		const preview = typeof message === 'string' ? message : `<${message.byteLength} bytes>`;
+		console.log(`[${roomName}] message: ${preview}`);
+
 		for (const client of this.ctx.getWebSockets()) {
 			client.send(message);
 		}
 
-		// Trigger the bot workflow for text messages
 		if (typeof message === 'string') {
-			const { roomName } = (ws.deserializeAttachment() as Attachment | null) ?? {
-				roomName: 'default'
-			};
 			await this.env.BOT_WORKFLOW.create({
 				params: { roomName, userMessage: message }
 			});
@@ -38,7 +39,8 @@ export class EchoDO extends DurableObject<Env> {
 		ws.close();
 	}
 
-	async webSocketError(ws: WebSocket): Promise<void> {
+	async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+		console.error(`WebSocket error: ${error instanceof Error ? error.message : String(error)}`);
 		ws.close();
 	}
 

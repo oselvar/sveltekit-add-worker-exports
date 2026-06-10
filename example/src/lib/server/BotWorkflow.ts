@@ -16,6 +16,7 @@ export class BotWorkflow extends WorkflowEntrypoint<Env, BotWorkflowParams> {
 		});
 
 		await step.do('send reply', async () => {
+			console.log(`[${event.instanceId}] replying: ${reply}`);
 			const id = this.env.ECHO.idFromName(roomName);
 			await this.env.ECHO.get(id).replyAsBot(reply);
 		});
