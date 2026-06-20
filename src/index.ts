@@ -46,6 +46,40 @@ export function parseWranglerConfig(path: string, contents: string): unknown {
 const DEFAULT_DEV_PORT = 8787;
 
 /**
+ * The build outputs this plugin writes into the adapter's output dir. They are
+ * server-side / Durable Object bundles and their source maps — never meant to
+ * be downloadable. adapter-cloudflare's generated `.assetsignore` only excludes
+ * its own outputs (`_worker.js`, `_routes.json`, `_headers`, `_redirects`), so
+ * without this Cloudflare would serve these as public static assets, leaking
+ * the bundled code and (via the maps' `sourcesContent`) the original
+ * TypeScript. See https://github.com/oselvar/sveltekit-add-worker-exports/issues/4
+ */
+export const PLUGIN_ASSETS_IGNORE_ENTRIES = [
+	'_sveltekit_worker.js',
+	'_sveltekit_worker.js.map',
+	'_extra_exports.js',
+	'_extra_exports.js.map'
+];
+
+/**
+ * Returns `.assetsignore` content with `entries` appended, skipping any that
+ * are already present (trim-compared). Preserves existing lines and order,
+ * normalises to a trailing newline. Idempotent — `.assetsignore` controls only
+ * public asset serving, so the listed files stay on disk for wrangler to bundle.
+ */
+export function mergeAssetsIgnore(existing: string, entries: string[]): string {
+	const lines = existing.split('\n');
+	const present = new Set(lines.map((l) => l.trim()));
+	const additions = entries.filter((e) => !present.has(e.trim()));
+
+	// Drop trailing blank lines so we append cleanly, then re-add one newline.
+	while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+		lines.pop();
+	}
+	return [...lines, ...additions].join('\n') + '\n';
+}
+
+/**
  * Mirrors wrangler's internal getRegistryPath() — wrangler doesn't export it.
  * Workers register themselves under this path so cross-worker `script_name`
  * bindings can find each other.
@@ -174,6 +208,19 @@ function buildPlugin(options: AddWorkerExportsOptions): Plugin {
 					`export * from './_extra_exports.js';\n` +
 					`const { fetch: _ignored, ...extraHandlers } = extra.default ?? {};\n` +
 					`export default { ...sveltekitWorker, ...extraHandlers };\n`
+			);
+
+			// Keep this plugin's server bundles and source maps out of the
+			// publicly-served assets. The adapter regenerates `.assetsignore`
+			// every build with only its own outputs; this plugin runs
+			// `enforce: 'post'`, so appending here survives each deploy.
+			const assetsIgnorePath = resolve(outputDir, '.assetsignore');
+			const currentIgnore = (await exists(assetsIgnorePath))
+				? await readFile(assetsIgnorePath, 'utf-8')
+				: '';
+			await writeFile(
+				assetsIgnorePath,
+				mergeAssetsIgnore(currentIgnore, PLUGIN_ASSETS_IGNORE_ENTRIES)
 			);
 		}
 	};
