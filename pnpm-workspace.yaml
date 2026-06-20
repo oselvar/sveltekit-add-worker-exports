@@ -4,7 +4,7 @@ packages:
 allowBuilds:
   core-js-pure: true
   esbuild: true
-  sharp: true
+  sharp: false
   workerd: true
 approveBuilds: esbuild
 minimumReleaseAgeExclude:

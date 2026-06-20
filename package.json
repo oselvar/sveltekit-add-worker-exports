@@ -37,15 +37,15 @@
 	},
 	"devDependencies": {
 		"@release-it/conventional-changelog": "^11.0.1",
-		"@sveltejs/kit": "^2.64.0",
-		"@types/node": "^25.9.2",
-		"esbuild": "^0.28.0",
-		"miniflare": "^4.20260609.0",
+		"@sveltejs/kit": "^2.66.0",
+		"@types/node": "^26.0.0",
+		"esbuild": "^0.28.1",
+		"miniflare": "^4.20260617.1",
 		"release-it": "^20.2.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.0.16",
-		"vitest": "^4.1.8",
-		"wrangler": "^4.99.0"
+		"vitest": "^4.1.9",
+		"wrangler": "^4.103.0"
 	},
 	"scripts": {
 		"build": "tsc",

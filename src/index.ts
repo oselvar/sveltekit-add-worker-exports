@@ -31,6 +31,7 @@ import { parse as parseJsonc } from 'jsonc-parser';
 import { getNodeCompat, WorkerdStructuredLog, type NodeJSCompatMode } from 'miniflare';
 import { parse as parseToml } from 'smol-toml';
 import type { Plugin } from 'vite';
+import type { Unstable_Config } from 'wrangler';
 
 /**
  * Parses a wrangler config file. Picks the parser by extension:
@@ -371,7 +372,7 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 					structuredLogsHandler
 				} as Parameters<typeof unstable_startWorker>[0]['dev'],
 				build: {
-					nodejsCompatMode: (parsedConfig) =>
+					nodejsCompatMode: (parsedConfig: Unstable_Config) =>
 						getNodejsCompatMode(
 							parsedConfig.compatibility_date,
 							parsedConfig.compatibility_flags
