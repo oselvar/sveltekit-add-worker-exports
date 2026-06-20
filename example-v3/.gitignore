@@ -1,0 +1,5 @@
+node_modules
+.svelte-kit
+.wrangler
+.dev-worker-wrangler.jsonc
+.platform-proxy-wrangler.jsonc

@@ -91,6 +91,54 @@ importers:
         specifier: ^4.99.0
         version: 4.99.0(@cloudflare/workers-types@4.20260609.1)
 
+  example-v3:
+    devDependencies:
+      '@cloudflare/voice':
+        specifier: ^0.1.2
+        version: 0.1.3(agents@0.12.4(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260609.1)(ai@6.0.191(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))(zod@4.4.3))(partysocket@1.1.19(react@19.2.6))(react@19.2.6)
+      '@cloudflare/workers-types':
+        specifier: ^4.20260609.1
+        version: 4.20260609.1
+      '@oselvar/sveltekit-add-worker-exports':
+        specifier: workspace:*
+        version: link:..
+      '@sveltejs/adapter-cloudflare':
+        specifier: 8.0.0-next.0
+        version: 8.0.0-next.0(@sveltejs/kit@3.0.0-next.4(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(svelte@5.55.9)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(wrangler@4.99.0(@cloudflare/workers-types@4.20260609.1))
+      '@sveltejs/kit':
+        specifier: 3.0.0-next.4
+        version: 3.0.0-next.4(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(svelte@5.55.9)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
+      '@sveltejs/vite-plugin-svelte':
+        specifier: ^7.0.0
+        version: 7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
+      agents:
+        specifier: ^0.12.4
+        version: 0.12.4(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260609.1)(ai@6.0.191(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))(zod@4.4.3)
+      esbuild:
+        specifier: ^0.27.0
+        version: 0.27.7
+      prettier:
+        specifier: ^3.0.0
+        version: 3.8.3
+      prettier-plugin-svelte:
+        specifier: ^3.0.0
+        version: 3.5.2(prettier@3.8.3)(svelte@5.55.9)
+      svelte:
+        specifier: ^5.48.0
+        version: 5.55.9
+      svelte-check:
+        specifier: ^4.0.0
+        version: 4.4.8(picomatch@4.0.4)(svelte@5.55.9)(typescript@6.0.3)
+      typescript:
+        specifier: ^6.0.0
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
+      wrangler:
+        specifier: ^4.99.0
+        version: 4.99.0(@cloudflare/workers-types@4.20260609.1)
+
 packages:
 
   '@ai-sdk/gateway@3.0.120':
@@ -1480,6 +1528,12 @@ packages:
       '@sveltejs/kit': ^2.0.0
       wrangler: ^4.0.0
 
+  '@sveltejs/adapter-cloudflare@8.0.0-next.0':
+    resolution: {integrity: sha512-aom2YwC7OpNuQq+MiC6cMnUMKImhTyQeTmPa+treHr8+qYsz31dnq4AT9Jy//12N4c6RbxZp2vAh1GkmnQWUQQ==}
+    peerDependencies:
+      '@sveltejs/kit': ^3.0.0
+      wrangler: ^4.67.0
+
   '@sveltejs/kit@2.61.0':
     resolution: {integrity: sha512-beYjgUux5ITbZeL0vn6gipZlsQiXF1/08C/3F+vlbDvthb/CTgYpZsYPdRIi9RxgTwRSkKIvnxyl+ViZlX4q5A==}
     engines: {node: '>=18.13'}
@@ -1506,6 +1560,22 @@ packages:
       svelte: ^4.0.0 || ^5.0.0-next.0
       typescript: ^5.3.3 || ^6.0.0
       vite: ^5.0.3 || ^6.0.0 || ^7.0.0-beta.0 || ^8.0.0
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+      typescript:
+        optional: true
+
+  '@sveltejs/kit@3.0.0-next.4':
+    resolution: {integrity: sha512-AN9QgXeSdmzkdTo9FOhbBR9lPMHU8CUjkIBb889zsglL6guTNJjFnutkq7TqCzJK1PMWDJPvyeKdOI6ILH6ToA==}
+    engines: {node: '>=22'}
+    hasBin: true
+    peerDependencies:
+      '@opentelemetry/api': ^1.0.0
+      '@sveltejs/vite-plugin-svelte': ^7.0.0
+      svelte: ^5.48.0
+      typescript: ^6.0.0
+      vite: ^8.0.0
     peerDependenciesMeta:
       '@opentelemetry/api':
         optional: true
@@ -3453,6 +3523,13 @@ snapshots:
       partysocket: 1.1.19(react@19.2.6)
       react: 19.2.6
 
+  '@cloudflare/voice@0.1.3(agents@0.12.4(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260609.1)(ai@6.0.191(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))(zod@4.4.3))(partysocket@1.1.19(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      agents: 0.12.4(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260609.1)(ai@6.0.191(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))(zod@4.4.3)
+    optionalDependencies:
+      partysocket: 1.1.19(react@19.2.6)
+      react: 19.2.6
+
   '@cloudflare/workerd-darwin-64@1.20260609.1':
     optional: true
 
@@ -4220,6 +4297,15 @@ snapshots:
       '@babel/runtime': 7.29.2
       vite: 8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
 
+  '@rolldown/plugin-babel@0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))':
+    dependencies:
+      '@babel/core': 7.29.0
+      picomatch: 4.0.4
+      rolldown: 1.0.3
+    optionalDependencies:
+      '@babel/runtime': 7.29.2
+      vite: 8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
+
   '@rolldown/pluginutils@1.0.1': {}
 
   '@simple-libs/child-process-utils@1.0.2':
@@ -4244,6 +4330,13 @@ snapshots:
     dependencies:
       '@cloudflare/workers-types': 4.20260523.1
       '@sveltejs/kit': 2.61.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(svelte@5.55.9)(typescript@5.9.3)(vite@8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
+      worktop: 0.8.0-next.18
+      wrangler: 4.99.0(@cloudflare/workers-types@4.20260609.1)
+
+  '@sveltejs/adapter-cloudflare@8.0.0-next.0(@sveltejs/kit@3.0.0-next.4(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(svelte@5.55.9)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(wrangler@4.99.0(@cloudflare/workers-types@4.20260609.1))':
+    dependencies:
+      '@cloudflare/workers-types': 4.20260609.1
+      '@sveltejs/kit': 3.0.0-next.4(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(svelte@5.55.9)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
       worktop: 0.8.0-next.18
       wrangler: 4.99.0(@cloudflare/workers-types@4.20260609.1)
 
@@ -4289,6 +4382,24 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       typescript: 6.0.3
 
+  '@sveltejs/kit@3.0.0-next.4(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)))(svelte@5.55.9)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))':
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      '@sveltejs/acorn-typescript': 1.0.10(acorn@8.16.0)
+      '@sveltejs/vite-plugin-svelte': 7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
+      acorn: 8.16.0
+      cookie: 1.1.1
+      devalue: 5.8.1
+      esm-env: 1.2.2
+      magic-string: 0.30.21
+      mrmime: 2.0.1
+      sirv: 3.0.2
+      svelte: 5.55.9
+      vite: 8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+      typescript: 6.0.3
+
   '@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))':
     dependencies:
       deepmerge: 4.3.1
@@ -4297,6 +4408,15 @@ snapshots:
       svelte: 5.55.9
       vite: 8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
       vitefu: 1.1.3(vite@8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
+
+  '@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))':
+    dependencies:
+      deepmerge: 4.3.1
+      magic-string: 0.30.21
+      obug: 2.1.2
+      svelte: 5.55.9
+      vite: 8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
+      vitefu: 1.1.3(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
 
   '@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@2.7.0))':
     dependencies:
@@ -4404,6 +4524,31 @@ snapshots:
       zod: 4.4.3
     optionalDependencies:
       vite: 8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
+    transitivePeerDependencies:
+      - '@babel/core'
+      - '@babel/plugin-transform-runtime'
+      - '@babel/runtime'
+      - '@cloudflare/workers-types'
+      - rolldown
+      - supports-color
+
+  agents@0.12.4(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260609.1)(ai@6.0.191(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))(zod@4.4.3):
+    dependencies:
+      '@babel/plugin-proposal-decorators': 7.29.0(@babel/core@7.29.0)
+      '@cfworker/json-schema': 4.1.1
+      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      '@rolldown/plugin-babel': 0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(rolldown@1.0.3)(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0))
+      ai: 6.0.191(zod@4.4.3)
+      cron-schedule: 6.0.0
+      mimetext: 3.0.28
+      nanoid: 5.1.11
+      partyserver: 0.5.6(@cloudflare/workers-types@4.20260609.1)
+      partysocket: 1.1.19(react@19.2.6)
+      react: 19.2.6
+      yargs: 18.0.0
+      zod: 4.4.3
+    optionalDependencies:
+      vite: 8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
     transitivePeerDependencies:
       - '@babel/core'
       - '@babel/plugin-transform-runtime'
@@ -5725,6 +5870,18 @@ snapshots:
     transitivePeerDependencies:
       - picomatch
 
+  svelte-check@4.4.8(picomatch@4.0.4)(svelte@5.55.9)(typescript@6.0.3):
+    dependencies:
+      '@jridgewell/trace-mapping': 0.3.31
+      chokidar: 4.0.3
+      fdir: 6.5.0(picomatch@4.0.4)
+      picocolors: 1.1.1
+      sade: 1.8.1
+      svelte: 5.55.9
+      typescript: 6.0.3
+    transitivePeerDependencies:
+      - picomatch
+
   svelte@5.55.9:
     dependencies:
       '@jridgewell/remapping': 2.3.5
@@ -5834,6 +5991,19 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.7.0
 
+  vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0):
+    dependencies:
+      lightningcss: 1.32.0
+      picomatch: 4.0.4
+      postcss: 8.5.15
+      rolldown: 1.0.3
+      tinyglobby: 0.2.17
+    optionalDependencies:
+      '@types/node': 25.9.2
+      esbuild: 0.27.7
+      fsevents: 2.3.3
+      jiti: 2.7.0
+
   vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@2.7.0):
     dependencies:
       lightningcss: 1.32.0
@@ -5850,6 +6020,10 @@ snapshots:
   vitefu@1.1.3(vite@8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)):
     optionalDependencies:
       vite: 8.0.14(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
+
+  vitefu@1.1.3(vite@8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)):
+    optionalDependencies:
+      vite: 8.0.16(@types/node@25.9.2)(esbuild@0.27.7)(jiti@2.7.0)
 
   vitefu@1.1.3(vite@8.0.16(@types/node@25.9.2)(esbuild@0.28.0)(jiti@2.7.0)):
     optionalDependencies:

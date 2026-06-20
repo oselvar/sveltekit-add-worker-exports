@@ -228,7 +228,7 @@ declare global {
 
 ### Build mode
 
-The plugin runs in the `closeBundle` hook (after SvelteKit's adapter has generated `_worker.js`):
+The plugin runs after SvelteKit's adapter has generated `_worker.js`. SvelteKit v2 runs the adapter in Vite's `closeBundle` hook, while SvelteKit v3 moved it into the newer `buildApp` hook (which runs *after* every `closeBundle`). The plugin registers its patch step on **both** hooks (idempotent), so whichever one runs after the adapter does the work:
 
 1. Bundles your `entryPoint` with esbuild into `_extra_exports.js`
 2. Renames the original `_worker.js` to `_sveltekit_worker.js`
@@ -244,7 +244,7 @@ export default { ...sveltekitWorker, ...extraHandlers };
 
 4. Appends its own outputs (`_sveltekit_worker.js`, `_extra_exports.js`, and their `.map` sidecars) to the adapter's `.assetsignore`. These are server-side / Durable Object bundles and source maps; the adapter's generated `.assetsignore` only excludes its own outputs, so without this Cloudflare would serve them as public static assets (the maps' `sourcesContent` would expose your original TypeScript). `.assetsignore` only controls public asset serving — the files stay on disk, so wrangler still bundles the worker and uploads its source maps.
 
-The operation is idempotent -- if `_sveltekit_worker.js` already exists, the plugin skips.
+The operation is idempotent -- if `_sveltekit_worker.js` already exists, the second hook skips. Tested against SvelteKit v2 (see [`example/`](example)) and v3 (see [`example-v3/`](example-v3)).
 
 ### Dev mode
 

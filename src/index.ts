@@ -141,87 +141,115 @@ export function addWorkerExports(options: AddWorkerExportsOptions): Plugin[] {
 	return [buildPlugin(options), devPlugin(options)];
 }
 
+/**
+ * Patches the adapter-generated `_worker.js`: bundles the named exports into
+ * `_extra_exports.js`, renames the original worker to `_sveltekit_worker.js`,
+ * and writes a merged `_worker.js`. Idempotent — safe to call from more than
+ * one Vite hook; the first call that finds `_worker.js` does the work, later
+ * calls see `_sveltekit_worker.js` and return.
+ *
+ * Returns `true` if it patched (or had already patched), `false` if the
+ * adapter hasn't written `_worker.js` yet.
+ */
+async function patchWorker(options: AddWorkerExportsOptions): Promise<boolean> {
+	const outputDir = resolve(options.outputDir ?? '.svelte-kit/cloudflare');
+	const workerPath = resolve(outputDir, '_worker.js');
+	const sveltekitPath = resolve(outputDir, '_sveltekit_worker.js');
+	const exportsPath = resolve(outputDir, '_extra_exports.js');
+
+	// Skip if already patched (idempotent)
+	if (await exists(sveltekitPath)) {
+		return true;
+	}
+
+	// Skip if the adapter hasn't run yet (e.g. during the SSR build phase, or
+	// before SvelteKit v3's `buildApp` hook runs the adapter)
+	if (!(await exists(workerPath))) {
+		return false;
+	}
+
+	// Bundle the named exports.
+	//
+	// `conditions: ['workerd', 'worker', 'browser']` is the Cloudflare-
+	// recommended set for bundlers targeting Workers — it picks the
+	// workerd-specific or browser-shimmed variants of packages over
+	// their Node variants (e.g. nanoid's webcrypto-via-`globalThis.crypto`
+	// browser build instead of the `node:crypto`-importing main build).
+	//
+	// Node built-ins are externalised so transitive deps that do
+	// `require('path')` or `import 'node:async_hooks'` survive bundling;
+	// the Workers runtime resolves them when `nodejs_compat` is enabled
+	// in wrangler.jsonc.
+	await build({
+		entryPoints: [options.entryPoint],
+		bundle: true,
+		format: 'esm',
+		sourcemap: true,
+		target: 'esnext',
+		conditions: ['workerd', 'worker', 'browser'],
+		external: ['cloudflare:*', ...NODE_BUILTINS, ...NODE_BUILTINS.map((m) => `node:${m}`)],
+		outfile: exportsPath
+	});
+
+	// Rename original worker and create merged entry point.
+	//
+	// `export *` re-exports named exports only, so class-based bindings
+	// (DOs, Workflows, WorkerEntrypoint) from `_extra_exports.js` flow
+	// through. Non-fetch handlers (scheduled, queue, email, tail, trace)
+	// live on the user entry's `default` export — Cloudflare invokes
+	// them as methods on the worker's default object, not as named
+	// exports — so we spread them onto the SvelteKit default. `fetch`
+	// is dropped from the user default because SvelteKit owns request
+	// handling in production.
+	await rename(workerPath, sveltekitPath);
+	await writeFile(
+		workerPath,
+		`import sveltekitWorker from './_sveltekit_worker.js';\n` +
+			`import * as extra from './_extra_exports.js';\n` +
+			`export * from './_extra_exports.js';\n` +
+			`const { fetch: _ignored, ...extraHandlers } = extra.default ?? {};\n` +
+			`export default { ...sveltekitWorker, ...extraHandlers };\n`
+	);
+
+	// Keep this plugin's server bundles and source maps out of the
+	// publicly-served assets. The adapter regenerates `.assetsignore` every
+	// build with only its own outputs; we append ours here, right after
+	// patching, so it survives each deploy regardless of which hook ran the
+	// patch (v2: `closeBundle`, v3: `buildApp`).
+	const assetsIgnorePath = resolve(outputDir, '.assetsignore');
+	const currentIgnore = (await exists(assetsIgnorePath))
+		? await readFile(assetsIgnorePath, 'utf-8')
+		: '';
+	await writeFile(
+		assetsIgnorePath,
+		mergeAssetsIgnore(currentIgnore, PLUGIN_ASSETS_IGNORE_ENTRIES)
+	);
+
+	return true;
+}
+
 function buildPlugin(options: AddWorkerExportsOptions): Plugin {
 	return {
 		name: 'add-worker-exports',
 		apply: 'build',
 		enforce: 'post',
 
+		// SvelteKit v2 runs the Cloudflare adapter inside `closeBundle`; our
+		// `enforce: 'post'` hook then runs after it and sees `_worker.js`.
 		async closeBundle() {
-			const outputDir = resolve(options.outputDir ?? '.svelte-kit/cloudflare');
-			const workerPath = resolve(outputDir, '_worker.js');
-			const sveltekitPath = resolve(outputDir, '_sveltekit_worker.js');
-			const exportsPath = resolve(outputDir, '_extra_exports.js');
+			await patchWorker(options);
+		},
 
-			// Skip if already patched (idempotent)
-			if (await exists(sveltekitPath)) {
-				return;
+		// SvelteKit v3 moved the adapter into Vite's `buildApp` hook, which runs
+		// *after* every `closeBundle`. By that point our `closeBundle` has
+		// already run and skipped (no `_worker.js` yet), so we patch here
+		// instead. `order: 'post'` ensures we run after SvelteKit's own
+		// `buildApp` that generates `_worker.js`. Harmless on v2 (idempotent).
+		buildApp: {
+			order: 'post',
+			async handler() {
+				await patchWorker(options);
 			}
-
-			// Skip if the adapter hasn't run yet (e.g. during SSR build phase)
-			if (!(await exists(workerPath))) {
-				return;
-			}
-
-			// Bundle the named exports.
-			//
-			// `conditions: ['workerd', 'worker', 'browser']` is the Cloudflare-
-			// recommended set for bundlers targeting Workers — it picks the
-			// workerd-specific or browser-shimmed variants of packages over
-			// their Node variants (e.g. nanoid's webcrypto-via-`globalThis.crypto`
-			// browser build instead of the `node:crypto`-importing main build).
-			//
-			// Node built-ins are externalised so transitive deps that do
-			// `require('path')` or `import 'node:async_hooks'` survive bundling;
-			// the Workers runtime resolves them when `nodejs_compat` is enabled
-			// in wrangler.jsonc.
-			await build({
-				entryPoints: [options.entryPoint],
-				bundle: true,
-				format: 'esm',
-				sourcemap: true,
-				target: 'esnext',
-				conditions: ['workerd', 'worker', 'browser'],
-				external: [
-					'cloudflare:*',
-					...NODE_BUILTINS,
-					...NODE_BUILTINS.map((m) => `node:${m}`)
-				],
-				outfile: exportsPath
-			});
-
-			// Rename original worker and create merged entry point.
-			//
-			// `export *` re-exports named exports only, so class-based bindings
-			// (DOs, Workflows, WorkerEntrypoint) from `_extra_exports.js` flow
-			// through. Non-fetch handlers (scheduled, queue, email, tail, trace)
-			// live on the user entry's `default` export — Cloudflare invokes
-			// them as methods on the worker's default object, not as named
-			// exports — so we spread them onto the SvelteKit default. `fetch`
-			// is dropped from the user default because SvelteKit owns request
-			// handling in production.
-			await rename(workerPath, sveltekitPath);
-			await writeFile(
-				workerPath,
-				`import sveltekitWorker from './_sveltekit_worker.js';\n` +
-					`import * as extra from './_extra_exports.js';\n` +
-					`export * from './_extra_exports.js';\n` +
-					`const { fetch: _ignored, ...extraHandlers } = extra.default ?? {};\n` +
-					`export default { ...sveltekitWorker, ...extraHandlers };\n`
-			);
-
-			// Keep this plugin's server bundles and source maps out of the
-			// publicly-served assets. The adapter regenerates `.assetsignore`
-			// every build with only its own outputs; this plugin runs
-			// `enforce: 'post'`, so appending here survives each deploy.
-			const assetsIgnorePath = resolve(outputDir, '.assetsignore');
-			const currentIgnore = (await exists(assetsIgnorePath))
-				? await readFile(assetsIgnorePath, 'utf-8')
-				: '';
-			await writeFile(
-				assetsIgnorePath,
-				mergeAssetsIgnore(currentIgnore, PLUGIN_ASSETS_IGNORE_ENTRIES)
-			);
 		}
 	};
 }
