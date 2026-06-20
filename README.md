@@ -2,6 +2,8 @@
 
 A Vite plugin that makes any class-based Cloudflare Worker export (Durable Objects, Workflows, `WorkerEntrypoint` RPC, voice agents, …) and any non-fetch handler (`scheduled`, `queue`, `email`, `tail`, `trace`) work with SvelteKit on Cloudflare, in both dev and production.
 
+Works with **SvelteKit 2 and SvelteKit 3** (see [`example/`](example) and [`example-v3/`](example-v3)).
+
 **Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires class-based bindings (Durable Objects, Workflows, `WorkerEntrypoint`, etc.) to be **named exports**, and non-fetch handlers (`scheduled`, `queue`, `email`, …) to be **methods on the default export**. This plugin post-processes the build output to merge both kinds onto SvelteKit's worker.
 
 **Dev mode:** `getPlatformProxy` (used by `adapter-cloudflare` in dev) can't run internal Durable Objects, Workflows, or other class-based bindings. This plugin starts a separate wrangler dev server that runs the real worker with hot-reload. SvelteKit `+server.ts` handlers call bindings through `platform.env.MY_BINDING.<rpc>()` as usual — the plugin rewrites those bindings to point at the sidecar via wrangler's dev registry, so cross-worker calls Just Work. WebSocket clients in dev connect to the sidecar directly on a separate port — see [WebSockets](#websockets) below. The sidecar also exposes `/__scheduled` so `scheduled` handlers can be fired manually in dev — see [Scheduled, queue, email, tail handlers](#scheduled-queue-email-tail-handlers).
