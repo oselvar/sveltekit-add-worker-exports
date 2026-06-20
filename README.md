@@ -242,6 +242,8 @@ const { fetch: _ignored, ...extraHandlers } = extra.default ?? {};
 export default { ...sveltekitWorker, ...extraHandlers };
 ```
 
+4. Appends its own outputs (`_sveltekit_worker.js`, `_extra_exports.js`, and their `.map` sidecars) to the adapter's `.assetsignore`. These are server-side / Durable Object bundles and source maps; the adapter's generated `.assetsignore` only excludes its own outputs, so without this Cloudflare would serve them as public static assets (the maps' `sourcesContent` would expose your original TypeScript). `.assetsignore` only controls public asset serving — the files stay on disk, so wrangler still bundles the worker and uploads its source maps.
+
 The operation is idempotent -- if `_sveltekit_worker.js` already exists, the plugin skips.
 
 ### Dev mode
