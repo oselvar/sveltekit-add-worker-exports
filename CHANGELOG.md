@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.1.0...v2.1.1) (2026-06-20)
+
+### Bug Fixes
+
+* exclude server bundles and source maps from public assets ([d0338c7](https://github.com/oselvar/sveltekit-add-worker-exports/commit/d0338c7a4867ebca6f543b56f5353f414428ecee)), closes [#4](https://github.com/oselvar/sveltekit-add-worker-exports/issues/4)
+* support SvelteKit v3 build pipeline (buildApp hook) ([3e65a33](https://github.com/oselvar/sveltekit-add-worker-exports/commit/3e65a33b22a5a8207b076b2adff859619d6d4e86)), closes [#4](https://github.com/oselvar/sveltekit-add-worker-exports/issues/4)
+
 ## [2.1.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.0.0...v2.1.0) (2026-06-10)
 
 ### Features
