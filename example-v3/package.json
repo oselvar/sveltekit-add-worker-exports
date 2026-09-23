@@ -9,7 +9,8 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "wrangler dev",
-		"types": "wrangler types --config .dev-worker-wrangler.jsonc",
+		"types": "sveltekit-add-worker-exports write-config && wrangler types --config .dev-worker-wrangler.jsonc",
+		"types:check": "sveltekit-add-worker-exports write-config && wrangler types --config .dev-worker-wrangler.jsonc --check",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"

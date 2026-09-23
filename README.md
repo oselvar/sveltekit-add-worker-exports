@@ -304,25 +304,29 @@ The plugin reads your wrangler config, creates a temporary config with `main` po
 
 ### Generating typed bindings
 
-The dev plugin creates a temporary `.dev-worker-wrangler.jsonc` with `main` pointing to your source entry point. Use it to generate fully generic Cloudflare types:
+The dev plugin runs the sidecar from a derived `.dev-worker-wrangler.jsonc`: your wrangler config with `main` pointing to your source entry point and `assets` removed. Use it to generate fully generic Cloudflare types:
 
 ```bash
+npx sveltekit-add-worker-exports write-config
 wrangler types --config .dev-worker-wrangler.jsonc
 ```
 
-This produces typed DO bindings like `DurableObjectNamespace<MyDurableObject>` instead of the untyped `DurableObjectNamespace` you get from the default `wrangler.jsonc` (whose `main` points to the SvelteKit build output, which doesn't exist during dev).
+This produces typed DO bindings like `DurableObjectNamespace<MyDurableObject>` instead of the untyped `DurableObjectNamespace` you get from the default `wrangler.jsonc`, whose `main` points to the SvelteKit build output (which also drags `.svelte-kit/cloudflare/_worker` into `tsc` via `mainModule`).
 
-Add this to your `package.json` scripts for convenience:
+`write-config` writes the same file the dev server does, without starting it. It reads `entryPoint` (and `wranglerConfig`, if set) from the `addWorkerExports()` call in your `vite.config.ts`, so it works in CI. Add scripts to `package.json`:
 
 ```json
 {
   "scripts": {
-    "types": "wrangler types --config .dev-worker-wrangler.jsonc"
+    "types": "sveltekit-add-worker-exports write-config && wrangler types --config .dev-worker-wrangler.jsonc",
+    "types:check": "sveltekit-add-worker-exports write-config && wrangler types --config .dev-worker-wrangler.jsonc --check"
   }
 }
 ```
 
-Note: the `.dev-worker-wrangler.jsonc` file is generated when the dev server starts. Run `pnpm dev` at least once before running `wrangler types`.
+Commit `worker-configuration.d.ts` and run `types:check` in CI to catch stale types. Add `.dev-worker-wrangler.jsonc` to `.gitignore`.
+
+Options: `--out <path>` changes the output file, `--vite-config <path>` points at a non-default vite config, and `--entry <path>` (with optional `--wrangler-config <path>`) skips loading the vite config altogether. From code, use `writeDevWorkerConfig({ entryPoint })` or the pure `deriveDevWorkerConfig(config, { entryPoint })`.
 
 ## Why this exists
 

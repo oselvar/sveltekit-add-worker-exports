@@ -335,6 +335,75 @@ function buildPlugin(options: AddWorkerExportsOptions): Plugin {
 	};
 }
 
+/** Default file name for the derived dev-worker wrangler config. */
+export const DEV_WORKER_CONFIG_FILE = '.dev-worker-wrangler.jsonc';
+
+/**
+ * Reads and parses the raw wrangler config (auto-discovered, or
+ * `wranglerConfig` when set). Returns the unresolved file contents — not
+ * wrangler's normalised config — so derived configs stay close to what the
+ * user wrote.
+ */
+export async function readWranglerConfig(
+	wranglerConfig?: string
+): Promise<{ path: string; config: any }> {
+	// Dynamic import — see readModuleRules for why.
+	const { unstable_readConfig } = await import('wrangler');
+	const parsed = unstable_readConfig(wranglerConfig ? { config: wranglerConfig } : {});
+	const path = parsed.configPath;
+	if (!path) {
+		throw new Error(
+			wranglerConfig
+				? `Could not read wrangler config at ${wranglerConfig}`
+				: 'No wrangler config (wrangler.jsonc, wrangler.json or wrangler.toml) found'
+		);
+	}
+	const contents = await readFile(path, 'utf-8');
+	return { path, config: parseWranglerConfig(path, contents) };
+}
+
+/**
+ * Derives the wrangler config the dev sidecar runs from the user's config:
+ * `main` points at the source entry point, the name gets a `-dev-worker`
+ * suffix, the dev port is set, and `assets` is dropped.
+ *
+ * The same config is what `wrangler types` should read: generating from the
+ * user's config (whose `main` is the SvelteKit build output) makes wrangler
+ * emit `mainModule: typeof import(".svelte-kit/cloudflare/_worker")` and
+ * untyped Durable Object bindings.
+ */
+export function deriveDevWorkerConfig(
+	baseConfig: any,
+	options: Pick<AddWorkerExportsOptions, 'entryPoint' | 'devPort'>
+): any {
+	const devConfig = structuredClone(baseConfig);
+	devConfig.name = devWorkerName(baseConfig);
+	devConfig.main = options.entryPoint;
+	devConfig.dev = { ...devConfig.dev, port: options.devPort ?? DEFAULT_DEV_PORT };
+	delete devConfig.assets;
+	return devConfig;
+}
+
+/**
+ * Reads the wrangler config, derives the dev-worker config and writes it to
+ * `outPath`. Lets `wrangler types --config .dev-worker-wrangler.jsonc` run
+ * without starting `vite dev` (e.g. in CI, with `--check`). Returns the
+ * absolute path written.
+ */
+export async function writeDevWorkerConfig(
+	options: AddWorkerExportsOptions,
+	outPath: string = DEV_WORKER_CONFIG_FILE
+): Promise<string> {
+	const { config } = await readWranglerConfig(options.wranglerConfig);
+	const path = resolve(outPath);
+	await writeFile(path, JSON.stringify(deriveDevWorkerConfig(config, options), null, '\t'));
+	return path;
+}
+
+function devWorkerName(baseConfig: { name?: string }): string {
+	return `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
+}
+
 function devPlugins(options: AddWorkerExportsOptions): Plugin[] {
 	const devPort = options.devPort ?? DEFAULT_DEV_PORT;
 	let worker: { dispose: () => Promise<void> } | null = null;
@@ -343,27 +412,15 @@ function devPlugins(options: AddWorkerExportsOptions): Plugin[] {
 	let sidecarName = '';
 	let registeredSidecarName = '';
 
-	async function readRawConfig(): Promise<{ path: string; contents: string }> {
-		// Dynamic import — see readModuleRules for why.
-		const { unstable_readConfig } = await import('wrangler');
-		const parsed = unstable_readConfig(
-			options.wranglerConfig ? { config: options.wranglerConfig } : {}
-		);
-		const path = parsed.configPath!;
-		const contents = await readFile(path, 'utf-8');
-		return { path, contents };
-	}
-
 	/**
 	 * Writes `.dev-worker-wrangler.jsonc` (the sidecar's config) and
 	 * `.platform-proxy-wrangler.jsonc` (for adapter-cloudflare's
 	 * `getPlatformProxy`).
 	 */
 	async function writeConfigs(): Promise<void> {
-		const { path: configPath, contents } = await readRawConfig();
-		const baseConfig = parseWranglerConfig(configPath, contents) as any;
+		const { config: baseConfig } = await readWranglerConfig(options.wranglerConfig);
 
-		sidecarName = `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
+		sidecarName = devWorkerName(baseConfig);
 
 		// When CLOUDFLARE_ENV is set, wrangler suffixes the registered
 		// worker name with `-${env}` (see appendEnvName in wrangler), so
@@ -373,19 +430,13 @@ function devPlugins(options: AddWorkerExportsOptions): Plugin[] {
 		const envName = process.env.CLOUDFLARE_ENV;
 		registeredSidecarName = envName ? `${sidecarName}-${envName}` : sidecarName;
 
-		// Copy the raw config and override main, name, and dev port
-		const devConfig = structuredClone(baseConfig);
-		devConfig.name = sidecarName;
-		devConfig.main = options.entryPoint;
-		devConfig.dev = { ...devConfig.dev, port: devPort };
-		delete devConfig.assets;
-
 		// The user can also pass this file to `wrangler types --config
 		// .dev-worker-wrangler.jsonc` to get typed bindings like
 		// DurableObjectNamespace<EchoDO> resolved from the source entry.
-		const devConfigJson = JSON.stringify(devConfig, null, '\t');
-		tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
-		await writeFile(tempConfigPath, devConfigJson);
+		// Outside of dev, `writeDevWorkerConfig` writes the same file.
+		const devConfig = deriveDevWorkerConfig(baseConfig, options);
+		tempConfigPath = resolve(DEV_WORKER_CONFIG_FILE);
+		await writeFile(tempConfigPath, JSON.stringify(devConfig, null, '\t'));
 
 		// Write a wrangler config for adapter-cloudflare's getPlatformProxy
 		// (used by vite dev for platform.env). It can't run internal DOs or
@@ -445,6 +496,10 @@ function devPlugins(options: AddWorkerExportsOptions): Plugin[] {
 		{
 			name: 'add-worker-exports-dev',
 			apply: 'serve',
+
+			// Lets the CLI (`sveltekit-add-worker-exports write-config`) find the
+			// plugin options in a loaded vite config.
+			api: { options },
 
 			config() {
 				return {

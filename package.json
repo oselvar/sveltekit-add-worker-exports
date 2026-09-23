@@ -12,6 +12,9 @@
 			"import": "./dist/index.js"
 		}
 	},
+	"bin": {
+		"sveltekit-add-worker-exports": "./dist/bin.js"
+	},
 	"files": [
 		"dist"
 	],
