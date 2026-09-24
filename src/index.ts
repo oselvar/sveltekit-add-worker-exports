@@ -25,6 +25,7 @@ import { build } from 'esbuild';
 import { existsSync } from 'node:fs';
 import { access, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { builtinModules as NODE_BUILTINS } from 'node:module';
+import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
@@ -117,6 +118,42 @@ function getWranglerRegistryPath(): string {
 		'.wrangler',
 		'registry'
 	);
+}
+
+/**
+ * Deletes `name`'s dev-registry entry if nothing is listening on its debug
+ * port. A sidecar that doesn't shut down cleanly (killed, crashed) leaves its
+ * entry behind, and the next sidecar with the same name doesn't replace it:
+ * `platform.env` calls then go to the dead address and fail with "Network
+ * connection lost" until the file is deleted. A live entry (e.g. another
+ * `vite dev` of the same app) is left alone.
+ */
+export async function removeDeadRegistryEntry(registryPath: string, name: string): Promise<void> {
+	const entryPath = join(registryPath, name);
+	let address: string | undefined;
+	try {
+		address = JSON.parse(await readFile(entryPath, 'utf-8')).debugPortAddress;
+	} catch {
+		return; // no entry, or one we can't parse -- leave it to wrangler
+	}
+	if (typeof address === 'string' && (await isListening(address))) return;
+	await unlink(entryPath).catch(() => {});
+}
+
+function isListening(address: string, timeoutMs = 1_000): Promise<boolean> {
+	const separator = address.lastIndexOf(':');
+	const host = address.slice(0, separator);
+	const port = Number(address.slice(separator + 1));
+	return new Promise((resolve) => {
+		const socket = connect({ host, port });
+		const done = (listening: boolean) => {
+			socket.destroy();
+			resolve(listening);
+		};
+		socket.setTimeout(timeoutMs, () => done(false));
+		socket.once('connect', () => done(true));
+		socket.once('error', () => done(false));
+	});
 }
 
 export interface AddWorkerExportsOptions {
@@ -396,6 +433,9 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 			const structuredLogsHandler =
 				options.structuredLogsHandler ?? makeDefaultWorkerLogHandler(sidecarName);
 
+			const registryPath = getWranglerRegistryPath();
+			await removeDeadRegistryEntry(registryPath, registeredSidecarName);
+
 			worker = await unstable_startWorker({
 				config: tempConfigPath,
 				// `testScheduled` mounts a `/__scheduled` endpoint on the sidecar
@@ -412,7 +452,7 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 				// disappears. Cast is needed because peer wrangler types may
 				// be older.
 				dev: {
-					registry: getWranglerRegistryPath(),
+					registry: registryPath,
 					testScheduled: true,
 					structuredLogsHandler
 				} as Parameters<typeof unstable_startWorker>[0]['dev'],
