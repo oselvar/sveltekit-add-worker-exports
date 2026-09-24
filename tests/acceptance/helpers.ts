@@ -148,6 +148,10 @@ export async function postWithRetry(
 			const res = await fetch(url, {
 				method: 'POST',
 				body,
+				// A same-origin `Origin`, as a browser would send. SvelteKit's CSRF
+				// check rejects text/plain POSTs without one (v3 is stricter than
+				// v2 about a missing header).
+				headers: { origin: new URL(url).origin },
 				signal: AbortSignal.timeout(10_000)
 			});
 			if (res.ok) return res;

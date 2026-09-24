@@ -2,6 +2,9 @@
 	"name": "example-v3",
 	"private": true,
 	"type": "module",
+	"imports": {
+		"#lib/*": "./src/lib/*"
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -15,16 +18,16 @@
 		"@cloudflare/voice": "^0.3.4",
 		"@cloudflare/workers-types": "^5.20260715.1",
 		"@oselvar/sveltekit-add-worker-exports": "workspace:*",
-		"@sveltejs/adapter-cloudflare": "8.0.0-next.0",
-		"@sveltejs/kit": "3.0.0-next.4",
+		"@sveltejs/adapter-cloudflare": "8.0.0-next.7",
+		"@sveltejs/kit": "3.0.0-next.27",
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
 		"agents": "^0.17.4",
 		"esbuild": "^0.28.1",
 		"prettier": "^3.9.5",
 		"prettier-plugin-svelte": "^4.1.1",
 		"svelte": "^5.56.5",
-		"svelte-check": "^4.7.2",
-		"typescript": "^7.0.2",
+		"svelte-check": "^4.7.6",
+		"typescript": "^6.0.3",
 		"vite": "^8.1.4",
 		"wrangler": "^4.111.0"
 	}

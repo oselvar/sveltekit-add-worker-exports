@@ -1,5 +1,6 @@
-import { forwardWebSocket } from '$lib/server/forwardWebSocket';
+import { env } from 'cloudflare:workers';
+import { forwardWebSocket } from '#lib/server/forwardWebSocket.ts';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = ({ params, request, platform }) =>
-	forwardWebSocket(request, platform!.env.ECHO, params.id);
+export const GET: RequestHandler = ({ params, request }) =>
+	forwardWebSocket(request, env.ECHO, params.id);
