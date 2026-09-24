@@ -57,6 +57,11 @@ for (const app of APPS) {
 		let proc: ManagedProcess;
 
 		beforeAll(async () => {
+			// Start like a fresh checkout (as in CI): a killed earlier run can leave
+			// these behind and hide ordering bugs in who writes vs reads them.
+			for (const file of ['.platform-proxy-wrangler.jsonc', '.dev-worker-wrangler.jsonc']) {
+				await rm(join(dir, file), { force: true });
+			}
 			proc = startProcess(['vite', 'dev', '--port', String(app.vitePort), '--strictPort'], dir);
 			try {
 				await waitForHttp(`${viteUrl}/`, 120_000, (res) => res.ok);

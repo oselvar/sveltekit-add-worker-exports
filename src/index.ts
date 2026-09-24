@@ -189,7 +189,7 @@ export interface AddWorkerExportsOptions {
  * ```
  */
 export function addWorkerExports(options: AddWorkerExportsOptions): Plugin[] {
-	return [buildPlugin(options), devPlugin(options)];
+	return [buildPlugin(options), ...devPlugins(options)];
 }
 
 /**
@@ -335,11 +335,13 @@ function buildPlugin(options: AddWorkerExportsOptions): Plugin {
 	};
 }
 
-function devPlugin(options: AddWorkerExportsOptions): Plugin {
+function devPlugins(options: AddWorkerExportsOptions): Plugin[] {
 	const devPort = options.devPort ?? DEFAULT_DEV_PORT;
 	let worker: { dispose: () => Promise<void> } | null = null;
 	let tempConfigPath: string | null = null;
 	let proxyConfigPath: string | null = null;
+	let sidecarName = '';
+	let registeredSidecarName = '';
 
 	async function readRawConfig(): Promise<{ path: string; contents: string }> {
 		// Dynamic import — see readModuleRules for why.
@@ -352,134 +354,162 @@ function devPlugin(options: AddWorkerExportsOptions): Plugin {
 		return { path, contents };
 	}
 
-	return {
-		name: 'add-worker-exports-dev',
-		apply: 'serve',
+	/**
+	 * Writes `.dev-worker-wrangler.jsonc` (the sidecar's config) and
+	 * `.platform-proxy-wrangler.jsonc` (for adapter-cloudflare's
+	 * `getPlatformProxy`).
+	 */
+	async function writeConfigs(): Promise<void> {
+		const { path: configPath, contents } = await readRawConfig();
+		const baseConfig = parseWranglerConfig(configPath, contents) as any;
 
-		config() {
-			return {
-				define: {
-					__DEV_WORKER_PORT__: JSON.stringify(devPort)
-				}
-			};
-		},
+		sidecarName = `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
 
-		async configureServer(server) {
-			// Dynamic import — see readModuleRules for why.
-			const { unstable_startWorker } = await import('wrangler');
-			const { path: configPath, contents } = await readRawConfig();
-			const baseConfig = parseWranglerConfig(configPath, contents) as any;
+		// When CLOUDFLARE_ENV is set, wrangler suffixes the registered
+		// worker name with `-${env}` (see appendEnvName in wrangler), so
+		// cross-worker `script_name` lookups must use the suffixed name.
+		// We don't suffix `devConfig.name` itself — wrangler does that
+		// based on CLOUDFLARE_ENV when starting the sidecar.
+		const envName = process.env.CLOUDFLARE_ENV;
+		registeredSidecarName = envName ? `${sidecarName}-${envName}` : sidecarName;
 
-			const sidecarName = `${baseConfig.name ?? 'sveltekit'}-dev-worker`;
+		// Copy the raw config and override main, name, and dev port
+		const devConfig = structuredClone(baseConfig);
+		devConfig.name = sidecarName;
+		devConfig.main = options.entryPoint;
+		devConfig.dev = { ...devConfig.dev, port: devPort };
+		delete devConfig.assets;
 
-			// When CLOUDFLARE_ENV is set, wrangler suffixes the registered
-			// worker name with `-${env}` (see appendEnvName in wrangler), so
-			// cross-worker `script_name` lookups must use the suffixed name.
-			// We don't suffix `devConfig.name` itself — wrangler does that
-			// based on CLOUDFLARE_ENV when starting the sidecar.
-			const envName = process.env.CLOUDFLARE_ENV;
-			const registeredSidecarName = envName ? `${sidecarName}-${envName}` : sidecarName;
+		// The user can also pass this file to `wrangler types --config
+		// .dev-worker-wrangler.jsonc` to get typed bindings like
+		// DurableObjectNamespace<EchoDO> resolved from the source entry.
+		const devConfigJson = JSON.stringify(devConfig, null, '\t');
+		tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
+		await writeFile(tempConfigPath, devConfigJson);
 
-			// Copy the raw config and override main, name, and dev port
-			const devConfig = structuredClone(baseConfig);
-			devConfig.name = sidecarName;
-			devConfig.main = options.entryPoint;
-			devConfig.dev = { ...devConfig.dev, port: devPort };
-			delete devConfig.assets;
+		// Write a wrangler config for adapter-cloudflare's getPlatformProxy
+		// (used by vite dev for platform.env). It can't run internal DOs or
+		// Workflows itself -- those are served by the sidecar above. Rewrite
+		// internal DO and Workflow bindings as cross-worker bindings
+		// (script_name pointing at the sidecar) so platform.env.MY_DO and
+		// platform.env.MY_WORKFLOW calls in +server.ts reach the sidecar via
+		// the wrangler dev registry.
+		const proxyConfig = structuredClone(baseConfig);
 
-			// The user can also pass this file to `wrangler types --config
-			// .dev-worker-wrangler.jsonc` to get typed bindings like
-			// DurableObjectNamespace<EchoDO> resolved from the source entry.
-			const devConfigJson = JSON.stringify(devConfig, null, '\t');
-			tempConfigPath = resolve('.dev-worker-wrangler.jsonc');
-			await writeFile(tempConfigPath, devConfigJson);
-
-			// Write a wrangler config for adapter-cloudflare's getPlatformProxy
-			// (used by vite dev for platform.env). It can't run internal DOs or
-			// Workflows itself -- those are served by the sidecar above. Rewrite
-			// internal DO and Workflow bindings as cross-worker bindings
-			// (script_name pointing at the sidecar) so platform.env.MY_DO and
-			// platform.env.MY_WORKFLOW calls in +server.ts reach the sidecar via
-			// the wrangler dev registry.
-			const proxyConfig = structuredClone(baseConfig);
-
-			// Wrangler does not merge per-env `durable_objects`/`workflows`/
-			// `migrations` arrays with the top-level — the selected env wholly
-			// overrides them. So we patch only the scope wrangler will actually
-			// use: top-level when no env, env[envName] when CLOUDFLARE_ENV is set.
-			const activeScope = envName ? proxyConfig.env?.[envName] : proxyConfig;
-			if (envName && !activeScope) {
-				throw new Error(
-					`CLOUDFLARE_ENV="${envName}" but no \`env.${envName}\` block in the wrangler config`
-				);
-			}
-			if (activeScope.durable_objects?.bindings) {
-				activeScope.durable_objects.bindings = activeScope.durable_objects.bindings.map(
-					(b: { script_name?: string }) =>
-						b.script_name ? b : { ...b, script_name: registeredSidecarName }
-				);
-			}
-			if (Array.isArray(activeScope.workflows)) {
-				activeScope.workflows = activeScope.workflows.map(
-					(w: { script_name?: string }) =>
-						w.script_name ? w : { ...w, script_name: registeredSidecarName }
-				);
-			}
-			delete activeScope.migrations;
-
-			proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
-			await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
-
-			const structuredLogsHandler =
-				options.structuredLogsHandler ?? makeDefaultWorkerLogHandler(sidecarName);
-
-			const registryPath = getWranglerRegistryPath();
-			await removeDeadRegistryEntry(registryPath, registeredSidecarName);
-
-			worker = await unstable_startWorker({
-				config: tempConfigPath,
-				// `testScheduled` mounts a `/__scheduled` endpoint on the sidecar
-				// so cron handlers can be invoked manually in dev — wrangler dev
-				// never auto-fires crons. Curl
-				// `http://localhost:<devPort>/__scheduled?cron=*+*+*+*+*` to
-				// trigger your `scheduled` handler.
-				//
-				// `structuredLogsHandler` (added in wrangler 4.99) routes each
-				// worker log line through `onWorkerLog`. Without it, wrangler
-				// pipes worker logs through its own Logger which can get
-				// swallowed when `unstable_startWorker` is driven
-				// programmatically — `console.log` inside the worker
-				// disappears. Cast is needed because peer wrangler types may
-				// be older.
-				dev: {
-					registry: registryPath,
-					testScheduled: true,
-					structuredLogsHandler
-				} as Parameters<typeof unstable_startWorker>[0]['dev'],
-				build: {
-					nodejsCompatMode: (parsedConfig: Unstable_Config) =>
-						getNodejsCompatMode(
-							parsedConfig.compatibility_date,
-							parsedConfig.compatibility_flags
-						)
-				}
-			});
-
-			server.httpServer?.on('close', async () => {
-				if (worker) {
-					await worker.dispose();
-					worker = null;
-				}
-				if (tempConfigPath) {
-					await unlink(tempConfigPath).catch(() => {});
-				}
-				if (proxyConfigPath) {
-					await unlink(proxyConfigPath).catch(() => {});
-				}
-			});
+		// Wrangler does not merge per-env `durable_objects`/`workflows`/
+		// `migrations` arrays with the top-level — the selected env wholly
+		// overrides them. So we patch only the scope wrangler will actually
+		// use: top-level when no env, env[envName] when CLOUDFLARE_ENV is set.
+		const activeScope = envName ? proxyConfig.env?.[envName] : proxyConfig;
+		if (envName && !activeScope) {
+			throw new Error(
+				`CLOUDFLARE_ENV="${envName}" but no \`env.${envName}\` block in the wrangler config`
+			);
 		}
-	};
+		if (activeScope.durable_objects?.bindings) {
+			activeScope.durable_objects.bindings = activeScope.durable_objects.bindings.map(
+				(b: { script_name?: string }) =>
+					b.script_name ? b : { ...b, script_name: registeredSidecarName }
+			);
+		}
+		if (Array.isArray(activeScope.workflows)) {
+			activeScope.workflows = activeScope.workflows.map(
+				(w: { script_name?: string }) =>
+					w.script_name ? w : { ...w, script_name: registeredSidecarName }
+			);
+		}
+		delete activeScope.migrations;
+
+		proxyConfigPath = resolve('.platform-proxy-wrangler.jsonc');
+		await writeFile(proxyConfigPath, JSON.stringify(proxyConfig, null, '\t'));
+	}
+
+	return [
+		// Writes the config files before other plugins' dev-server hooks run.
+		// adapter-cloudflare 8 calls `getPlatformProxy` from its own
+		// `configureServer`, which reads `.platform-proxy-wrangler.jsonc` and
+		// fails on a fresh checkout if we haven't written it yet. Vite awaits
+		// these hooks in order.
+		{
+			name: 'add-worker-exports-dev-config',
+			apply: 'serve',
+			configureServer: {
+				order: 'pre',
+				handler: writeConfigs
+			}
+		},
+		// Starts the sidecar in normal order, after SvelteKit's hooks. Starting
+		// it earlier makes wrangler reload it when SvelteKit regenerates files
+		// the bundle watches (e.g. the tsconfig chain), dropping in-flight work
+		// such as a just-created Workflow.
+		{
+			name: 'add-worker-exports-dev',
+			apply: 'serve',
+
+			config() {
+				return {
+					define: {
+						__DEV_WORKER_PORT__: JSON.stringify(devPort)
+					}
+				};
+			},
+
+			async configureServer(server) {
+				// Dynamic import — see readModuleRules for why.
+				const { unstable_startWorker } = await import('wrangler');
+
+				const structuredLogsHandler =
+					options.structuredLogsHandler ?? makeDefaultWorkerLogHandler(sidecarName);
+
+				const registryPath = getWranglerRegistryPath();
+				await removeDeadRegistryEntry(registryPath, registeredSidecarName);
+
+				worker = await unstable_startWorker({
+					config: tempConfigPath,
+					// `testScheduled` mounts a `/__scheduled` endpoint on the sidecar
+					// so cron handlers can be invoked manually in dev — wrangler dev
+					// never auto-fires crons. Curl
+					// `http://localhost:<devPort>/__scheduled?cron=*+*+*+*+*` to
+					// trigger your `scheduled` handler.
+					//
+					// `structuredLogsHandler` (added in wrangler 4.99) routes each
+					// worker log line through `onWorkerLog`. Without it, wrangler
+					// pipes worker logs through its own Logger which can get
+					// swallowed when `unstable_startWorker` is driven
+					// programmatically — `console.log` inside the worker
+					// disappears. Cast is needed because peer wrangler types may
+					// be older.
+					dev: {
+						registry: registryPath,
+						testScheduled: true,
+						structuredLogsHandler
+					} as Parameters<typeof unstable_startWorker>[0]['dev'],
+					build: {
+						nodejsCompatMode: (parsedConfig: Unstable_Config) =>
+							getNodejsCompatMode(
+								parsedConfig.compatibility_date,
+								parsedConfig.compatibility_flags
+							)
+					}
+				});
+
+				server.httpServer?.on('close', async () => {
+					if (worker) {
+						await worker.dispose();
+						worker = null;
+					}
+					if (tempConfigPath) {
+						await unlink(tempConfigPath).catch(() => {});
+					}
+					if (proxyConfigPath) {
+						await unlink(proxyConfigPath).catch(() => {});
+					}
+				});
+			}
+		}
+	];
 }
+
 
 /**
  * Default handler for sidecar worker logs. Writes each line to stdout (or
