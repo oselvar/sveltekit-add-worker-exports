@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -18,5 +19,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Unit tests
         run: pnpm test
+      - name: Build
+        run: pnpm build
+      # The examples' vite configs import the built plugin, so these run after
+      # the build. `check` runs svelte-kit sync + svelte-check.
+      - name: Type-check example apps
+        run: pnpm --filter "./example*" check
+      - name: Check example app formatting
+        run: pnpm --filter "./example*" format:check
       - name: Acceptance tests (example apps, dev + built mode)
         run: pnpm test:acceptance

@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import {
 	type ManagedProcess,
 	postWithRetry,
@@ -66,6 +66,14 @@ for (const app of APPS) {
 				await proc.kill();
 				throw new Error(`${error}\n--- vite dev output ---\n${proc.output()}`);
 			}
+		});
+
+		// On failure, print what the server logged — a route's 500 only says
+		// "Internal Error" to the client.
+		beforeEach(({ onTestFailed }) => {
+			onTestFailed(() => {
+				console.error(`--- ${app.name} vite dev output (last 8000 chars) ---\n${proc?.output().slice(-8000)}`);
+			});
 		});
 
 		afterAll(async () => {
@@ -171,6 +179,14 @@ for (const app of APPS) {
 				await proc.kill();
 				throw new Error(`${error}\n--- wrangler dev output ---\n${proc.output()}`);
 			}
+		});
+
+		// On failure, print what the server logged — a route's 500 only says
+		// "Internal Error" to the client.
+		beforeEach(({ onTestFailed }) => {
+			onTestFailed(() => {
+				console.error(`--- ${app.name} wrangler dev output (last 8000 chars) ---\n${proc?.output().slice(-8000)}`);
+			});
 		});
 
 		afterAll(async () => {
