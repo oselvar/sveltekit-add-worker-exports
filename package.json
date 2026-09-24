@@ -12,7 +12,11 @@
 			"import": "./dist/index.js"
 		}
 	},
+	"bin": {
+		"sveltekit-add-worker-exports": "./bin/sveltekit-add-worker-exports.js"
+	},
 	"files": [
+		"bin",
 		"dist"
 	],
 	"license": "MIT",

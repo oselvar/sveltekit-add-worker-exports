@@ -25,6 +25,10 @@ jobs:
       # the build. `check` runs svelte-kit sync + svelte-check.
       - name: Type-check example apps
         run: pnpm --filter "./example*" check
+      # Regenerates the worker types without starting vite dev (#9) and fails
+      # if the committed worker-configuration.d.ts is stale.
+      - name: Check example worker types are up to date
+        run: pnpm --filter "./example*" types:check
       - name: Check example app formatting
         run: pnpm --filter "./example*" format:check
       - name: Acceptance tests (example apps, dev + built mode)
