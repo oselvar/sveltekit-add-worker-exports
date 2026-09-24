@@ -13,9 +13,10 @@
 		}
 	},
 	"bin": {
-		"sveltekit-add-worker-exports": "./dist/bin.js"
+		"sveltekit-add-worker-exports": "./bin/sveltekit-add-worker-exports.js"
 	},
 	"files": [
+		"bin",
 		"dist"
 	],
 	"license": "MIT",

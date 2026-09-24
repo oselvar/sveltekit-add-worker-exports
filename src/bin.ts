@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { main, USAGE, UsageError } from './cli.js';
 
 main(process.argv.slice(2)).catch((error: unknown) => {
