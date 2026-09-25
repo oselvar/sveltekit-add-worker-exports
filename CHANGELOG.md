@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.1](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.2.0...v2.2.1) (2026-09-25)
+
+### Bug Fixes
+
+* load .env.<CLOUDFLARE_ENV> in the dev sidecar ([6f21d83](https://github.com/oselvar/sveltekit-add-worker-exports/commit/6f21d83b8dc7938e6b3f3253b7bfbf39f25297f0)), closes [#11](https://github.com/oselvar/sveltekit-add-worker-exports/issues/11)
+
 ## [2.2.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.1.2...v2.2.0) (2026-09-25)
 
 ### Features
