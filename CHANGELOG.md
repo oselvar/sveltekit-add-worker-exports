@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.0](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.1.2...v2.2.0) (2026-09-25)
+
+### Features
+
+* write the dev-worker config without vite dev ([a369847](https://github.com/oselvar/sveltekit-add-worker-exports/commit/a369847984407c508e9dc44249c7a49721406a3c)), closes [#9](https://github.com/oselvar/sveltekit-add-worker-exports/issues/9)
+
+### Bug Fixes
+
+* remove the sidecar's dead dev-registry entry before starting it ([a391842](https://github.com/oselvar/sveltekit-add-worker-exports/commit/a39184296aaebb0f3a1adf39ab8e2f40eee5984b))
+* type errors in the example apps ([1457f8e](https://github.com/oselvar/sveltekit-add-worker-exports/commit/1457f8e6b33bf32a2042b385d7df5d4a69844f66)), closes [#lib](https://github.com/oselvar/sveltekit-add-worker-exports/issues/lib)
+* write dev configs before adapter-cloudflare 8 reads them ([003994c](https://github.com/oselvar/sveltekit-add-worker-exports/commit/003994cda60d6d2c98609014e04a9709b143408a))
+
 ## [2.1.2](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.1.1...v2.1.2) (2026-07-16)
 
 ### Bug Fixes
