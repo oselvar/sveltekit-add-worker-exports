@@ -1,0 +1,12 @@
+{
+	// Reproduces https://github.com/oselvar/sveltekit-add-worker-exports/issues/11:
+	// with CLOUDFLARE_ENV=dev_b, `.env.dev_b` must win over `.env`.
+	"name": "cloudflare-env-fixture",
+	"compatibility_date": "2026-05-13",
+	"main": "src/index.ts",
+	"vars": { "FRONTEND_URL": "https://example.com" },
+	"env": {
+		"dev_a": { "vars": { "FRONTEND_URL": "http://localhost:5175" } },
+		"dev_b": { "vars": { "FRONTEND_URL": "http://localhost:5180" } }
+	}
+}

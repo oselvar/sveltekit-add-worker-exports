@@ -521,6 +521,14 @@ function devPlugins(options: AddWorkerExportsOptions): Plugin[] {
 
 				worker = await unstable_startWorker({
 					config: tempConfigPath,
+					// Wrangler falls back to CLOUDFLARE_ENV when resolving the
+					// config (and the sidecar's name), but not when choosing which
+					// `.env` / `.dev.vars` files to load: without `env`, only `.env`
+					// and `.env.local` are read, and they override the env's `vars`.
+					// Passing it adds `.env.<env>` / `.dev.vars.<env>`, matching
+					// `wrangler dev --env <env>`. See
+					// https://github.com/oselvar/sveltekit-add-worker-exports/issues/11
+					env: process.env.CLOUDFLARE_ENV,
 					// `testScheduled` mounts a `/__scheduled` endpoint on the sidecar
 					// so cron handlers can be invoked manually in dev — wrangler dev
 					// never auto-fires crons. Curl
