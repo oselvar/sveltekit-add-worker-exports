@@ -116,6 +116,16 @@ A handy shortcut is to add a `preview` script to `package.json`:
 
 > Note: `vite preview` is *not* suitable here — it only serves static assets and cannot run Durable Objects. Always use `wrangler dev` to preview the production worker.
 
+### Wrangler environments
+
+Set `CLOUDFLARE_ENV` to run dev against one of the `env` blocks in your wrangler config:
+
+```bash
+CLOUDFLARE_ENV=staging pnpm dev
+```
+
+The sidecar then behaves like `wrangler dev --env staging`: it uses `env.staging`'s bindings and `vars`, loads `.env.staging` / `.env.staging.local` (or `.dev.vars.staging`) on top of `.env` / `.env.local`, and registers as `<name>-dev-worker-staging`. As with wrangler, values in `.env` files override `vars`.
+
 ## Scheduled, queue, email, tail handlers
 
 Cloudflare invokes non-fetch handlers (`scheduled`, `queue`, `email`, `tail`, `trace`) as methods on the worker's default export, not as named exports. Put them on the `default` export of your entry point and the plugin merges them onto the production worker's default alongside SvelteKit's fetch handler:

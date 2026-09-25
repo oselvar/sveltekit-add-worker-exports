@@ -24,13 +24,18 @@ export interface ManagedProcess {
 /**
  * Starts a long-running command via `pnpm exec` in `cwd`, detached so the
  * whole process group (including workerd grandchildren) can be signalled.
+ * `env` adds to (or overrides) the inherited environment.
  */
-export function startProcess(args: string[], cwd: string): ManagedProcess {
+export function startProcess(
+	args: string[],
+	cwd: string,
+	env: Record<string, string> = {}
+): ManagedProcess {
 	const child = spawn('pnpm', ['exec', ...args], {
 		cwd,
 		detached: true,
 		stdio: ['ignore', 'pipe', 'pipe'],
-		env: baseEnv
+		env: { ...baseEnv, ...env }
 	});
 	let output = '';
 	child.stdout.on('data', (data) => (output += data));
