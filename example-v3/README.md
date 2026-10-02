@@ -1,8 +1,7 @@
 # example-v3
 
-Same app as [`../example`](../example), but pinned to the **SvelteKit v3**
-prerelease (`@sveltejs/kit@3.0.0-next.27` +
-`@sveltejs/adapter-cloudflare@8.0.0-next.7`). It exists to exercise the plugin
+Same app as [`../example`](../example), but on **SvelteKit v3**
+(`@sveltejs/kit@3` + `@sveltejs/adapter-cloudflare@8`). It exists to exercise the plugin
 against v3's build pipeline — see
 [issue #5](https://github.com/oselvar/sveltekit-add-worker-exports/issues/5).
 
