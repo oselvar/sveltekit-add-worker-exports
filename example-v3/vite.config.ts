@@ -18,6 +18,7 @@ export default defineConfig({
 				}
 			})
 		}),
-		addWorkerExports({ entryPoint: 'src/lib/server/index.ts' })
+		// Not the default 8787, so this app's dev server can run alongside example/'s.
+		addWorkerExports({ entryPoint: 'src/lib/server/index.ts', devPort: 8788 })
 	]
 });

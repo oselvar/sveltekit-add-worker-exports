@@ -1,23 +1,5 @@
-/**
- * Acceptance tests for the example apps (SvelteKit v2 in `example/`,
- * SvelteKit v3 in `example-v3/`). Each app is exercised in both modes:
- *
- * - **dev mode**: `vite dev` with the plugin's wrangler sidecar. Verifies
- *   the DO echo + workflow reply over WebSocket against the sidecar, that
- *   `+server.ts` routes reach the sidecar's DO/Workflow bindings through
- *   `platform.env` (dev-registry routing), and the `/__scheduled` endpoint.
- * - **built mode**: `vite build` then `wrangler dev` serving the merged
- *   `_worker.js` — the exact bundle that gets deployed. Verifies the same
- *   behavior through the production worker, plus the build artifacts.
- *
- * Everything runs headless: plain `fetch` and Node's built-in `WebSocket`.
- * Suites run sequentially (see vitest.acceptance.config.ts) because the dev
- * sidecar always binds port 8787 and both apps register the same worker
- * name in the wrangler dev registry.
- */
-
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,30 +13,64 @@ import {
 	waitForPortClosed,
 	WsClient
 } from './helpers';
+import type { AppPorts } from './ports';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..');
 
-/** Port the plugin's dev sidecar listens on (the plugin's default). */
-const SIDECAR_PORT = 8787;
-
-// `userTextRule`: example-v3 declares a `**/*.frag` Text rule in its
-// wrangler.jsonc and EchoDO replies to `/frag` with the imported file;
-// example has no `rules` config, so its `/sql` reply proves wrangler's
-// default module rules alone.
-const APPS = [
-	{ name: 'example', vitePort: 5301, previewPort: 5302, inspectorPort: 9401, userTextRule: false },
-	{ name: 'example-v3', vitePort: 5303, previewPort: 5304, inspectorPort: 9402, userTextRule: true }
-];
+export interface App extends AppPorts {
+	name: string;
+	/**
+	 * example-v3 declares a Text rule for `.frag` files in its wrangler.jsonc and
+	 * EchoDO replies to `/frag` with the imported file; example has no `rules`
+	 * config, so its `/sql` reply proves wrangler's default module rules alone.
+	 */
+	userTextRule: boolean;
+}
 
 const uniqueRoom = () => `room-${randomUUID()}`;
 const botReply = (message: string) => `🤖 I heard you say: "${message}"`;
 
-for (const app of APPS) {
+/**
+ * Defines the dev-mode and built-mode suites for one example app.
+ *
+ * - **dev mode**: `vite dev` with the plugin's wrangler sidecar. Verifies
+ *   the DO echo + workflow reply over WebSocket against the sidecar, that
+ *   `+server.ts` routes reach the sidecar's DO/Workflow bindings through
+ *   `platform.env` (dev-registry routing), and the `/__scheduled` endpoint.
+ * - **built mode**: `vite build` then `wrangler dev` serving the merged
+ *   `_worker.js` (the exact bundle that gets deployed). Verifies the same
+ *   behavior through the production worker, plus the build artifacts.
+ *
+ * Each app gets its own ports (see ports.ts) and a private wrangler dev
+ * registry, so the apps can run in parallel: both register the same worker
+ * name, and in a shared registry one app's `platform.env` would reach the
+ * other app's sidecar.
+ */
+export function defineAppSuites(app: App): void {
+	let registryPath: string;
+	const env = () => ({
+		WRANGLER_REGISTRY_PATH: registryPath,
+		// Lets the vars below override wrangler.jsonc `vars`, in both the
+		// sidecar and `wrangler dev`.
+		CLOUDFLARE_INCLUDE_PROCESS_ENV: 'true',
+		// BotWorkflow sleeps 2s by default to demo durable sleep; 8 tests wait
+		// for its reply.
+		BOT_THINK_SECONDS: '0'
+	});
+
+	beforeAll(async () => {
+		registryPath = await mkdtemp(join(tmpdir(), 'wrangler-registry-'));
+	});
+
+	afterAll(async () => {
+		await rm(registryPath, { recursive: true, force: true });
+	});
+
 	const dir = join(ROOT, app.name);
 
 	describe(`${app.name} — dev mode (vite dev + wrangler sidecar)`, () => {
 		const viteUrl = `http://localhost:${app.vitePort}`;
-		const sidecarUrl = `http://localhost:${SIDECAR_PORT}`;
+		const sidecarUrl = `http://localhost:${app.sidecarPort}`;
 		let proc: ManagedProcess;
 
 		beforeAll(async () => {
@@ -63,7 +79,11 @@ for (const app of APPS) {
 			for (const file of ['.platform-proxy-wrangler.jsonc', '.dev-worker-wrangler.jsonc']) {
 				await rm(join(dir, file), { force: true });
 			}
-			proc = startProcess(['vite', 'dev', '--port', String(app.vitePort), '--strictPort'], dir);
+			proc = startProcess(
+				['vite', 'dev', '--port', String(app.vitePort), '--strictPort'],
+				dir,
+				env()
+			);
 			try {
 				await waitForHttp(`${viteUrl}/`, 120_000, (res) => res.ok);
 				// The sidecar's fetch handler 404s on "/" — any response means it's up.
@@ -95,7 +115,7 @@ for (const app of APPS) {
 		});
 
 		test('Durable Object echoes over WebSocket and the Workflow replies', async () => {
-			const ws = await WsClient.connect(`ws://localhost:${SIDECAR_PORT}/ws/${uniqueRoom()}`);
+			const ws = await WsClient.connect(`ws://localhost:${app.sidecarPort}/ws/${uniqueRoom()}`);
 			try {
 				ws.send('hello');
 				// Echo proves the EchoDO named export runs in the sidecar; the bot
@@ -109,7 +129,7 @@ for (const app of APPS) {
 
 		test('+server.ts route reaches the DO via platform.env (dev registry)', async () => {
 			const room = uniqueRoom();
-			const ws = await WsClient.connect(`ws://localhost:${SIDECAR_PORT}/ws/${room}`);
+			const ws = await WsClient.connect(`ws://localhost:${app.sidecarPort}/ws/${room}`);
 			try {
 				const res = await postWithRetry(`${viteUrl}/api/say/${room}`, 'hi from the route');
 				expect(await res.text()).toBe('ok');
@@ -121,7 +141,7 @@ for (const app of APPS) {
 
 		test('+server.ts route creates a Workflow via platform.env (dev registry)', async () => {
 			const room = uniqueRoom();
-			const ws = await WsClient.connect(`ws://localhost:${SIDECAR_PORT}/ws/${room}`);
+			const ws = await WsClient.connect(`ws://localhost:${app.sidecarPort}/ws/${room}`);
 			try {
 				const res = await postWithRetry(`${viteUrl}/api/bot/${room}`, 'ping');
 				expect(await res.text()).toMatch(/\S/); // the workflow instance id
@@ -137,7 +157,7 @@ for (const app of APPS) {
 		});
 
 		test('DO replies with the imported .sql module (wrangler default rules)', async () => {
-			const ws = await WsClient.connect(`ws://localhost:${SIDECAR_PORT}/ws/${uniqueRoom()}`);
+			const ws = await WsClient.connect(`ws://localhost:${app.sidecarPort}/ws/${uniqueRoom()}`);
 			try {
 				ws.send('/sql');
 				await ws.waitFor((m) => m.includes('hello from sql'), 15_000);
@@ -148,7 +168,7 @@ for (const app of APPS) {
 
 		if (app.userTextRule) {
 			test('DO replies with the imported .frag module (user-defined rule)', async () => {
-				const ws = await WsClient.connect(`ws://localhost:${SIDECAR_PORT}/ws/${uniqueRoom()}`);
+				const ws = await WsClient.connect(`ws://localhost:${app.sidecarPort}/ws/${uniqueRoom()}`);
 				try {
 					ws.send('/frag');
 					await ws.waitFor((m) => m.includes('hello from frag'), 15_000);
@@ -177,7 +197,8 @@ for (const app of APPS) {
 					String(app.inspectorPort),
 					'--test-scheduled'
 				],
-				dir
+				dir,
+				env()
 			);
 			try {
 				await waitForHttp(`${baseUrl}/`, 120_000, (res) => res.ok);
@@ -297,52 +318,3 @@ for (const app of APPS) {
 		});
 	});
 }
-
-// https://github.com/oselvar/sveltekit-add-worker-exports/issues/11: the
-// sidecar must load `.env.<CLOUDFLARE_ENV>`, not only `.env`, like
-// `wrangler dev --env <env>` does.
-describe('CLOUDFLARE_ENV — dev sidecar (fixtures/cloudflare-env)', () => {
-	const dir = join(ROOT, 'tests/acceptance/fixtures/cloudflare-env');
-	const vitePort = 5305;
-	const sidecarUrl = `http://localhost:${SIDECAR_PORT}`;
-	let proc: ManagedProcess;
-	let registryPath: string;
-
-	beforeAll(async () => {
-		// A private registry, so the assertion below doesn't depend on (or
-		// disturb) other wrangler dev sessions on this machine.
-		registryPath = await mkdtemp(join(tmpdir(), 'wrangler-registry-'));
-		proc = startProcess(['vite', 'dev', '--port', String(vitePort), '--strictPort'], dir, {
-			CLOUDFLARE_ENV: 'dev_b',
-			WRANGLER_REGISTRY_PATH: registryPath
-		});
-		try {
-			await waitForHttp(`http://localhost:${vitePort}/`, 120_000);
-			await waitForHttp(`${sidecarUrl}/`, 60_000);
-		} catch (error) {
-			await proc.kill();
-			throw new Error(`${error}\n--- vite dev output ---\n${proc.output()}`);
-		}
-	});
-
-	beforeEach(({ onTestFailed }) => {
-		onTestFailed(() => {
-			console.error(`--- cloudflare-env vite dev output ---\n${proc?.output().slice(-8000)}`);
-		});
-	});
-
-	afterAll(async () => {
-		await proc?.kill();
-		await waitForPortClosed(`${sidecarUrl}/`, 30_000);
-		await rm(registryPath, { recursive: true, force: true });
-	});
-
-	test('loads .env.<CLOUDFLARE_ENV> over .env', async () => {
-		const res = await fetch(`${sidecarUrl}/`);
-		expect(await res.text()).toBe('http://localhost:5180');
-	});
-
-	test('registers the sidecar under the env-suffixed name', async () => {
-		expect(await readdir(registryPath)).toContain('cloudflare-env-fixture-dev-worker-dev_b');
-	});
-});

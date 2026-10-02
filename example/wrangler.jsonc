@@ -3,6 +3,10 @@
 	"name": "echo-example",
 	"compatibility_date": "2026-05-13",
 	"compatibility_flags": ["nodejs_compat"],
+	"vars": {
+		// How long BotWorkflow "thinks" before replying (the acceptance tests set 0).
+		"BOT_THINK_SECONDS": "2"
+	},
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"triggers": {
 		"crons": ["*/5 * * * *"]

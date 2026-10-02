@@ -32,7 +32,7 @@ pnpm test:acceptance   # acceptance tests for the example apps
 
 The acceptance tests (`tests/acceptance/`) exercise both example apps (`example/` on SvelteKit v2, `example-v3/` on SvelteKit v3) in **dev mode** (`vite dev` + the plugin's wrangler sidecar) and **built mode** (`vite build` + `wrangler dev` serving the merged `_worker.js`). They spawn the apps as child processes and drive them headlessly with `fetch` and Node's built-in `WebSocket` — no browser. Each mode verifies the Durable Object echo, the Workflow bot reply, `platform.env` DO/Workflow calls from `+server.ts` routes, and the `scheduled` handler.
 
-They need Node >= 26 and ports 5301–5304, 8787, and 9401–9402 free, and they run sequentially (the dev sidecar always binds 8787). Expect a few minutes of runtime. Both suites run in CI on every push and pull request (`.github/workflows/ci.yml`).
+They need Node >= 26 and the ports listed in `tests/acceptance/ports.ts` (5301–5305, 8787–8789, 9401–9402). If any of them is in use, the run stops right away and names the process holding it. Each app's test file runs in parallel with the others, using its own ports and a private wrangler dev registry, so a full run takes about 15 seconds. Both suites run in CI on every push and pull request (`.github/workflows/ci.yml`).
 
 ### Testing locally
 

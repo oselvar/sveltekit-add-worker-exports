@@ -3,5 +3,6 @@ import { addWorkerExports } from '@oselvar/sveltekit-add-worker-exports';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-	plugins: [addWorkerExports({ entryPoint: 'src/index.ts' })]
+	// Its own sidecar port, so it can run alongside the example apps' tests.
+	plugins: [addWorkerExports({ entryPoint: 'src/index.ts', devPort: 8789 })]
 });
