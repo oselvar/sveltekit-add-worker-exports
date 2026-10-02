@@ -4,7 +4,7 @@ A Vite plugin that makes any class-based Cloudflare Worker export (Durable Objec
 
 Works with **SvelteKit 2 and SvelteKit 3** (see [`example/`](example) and [`example-v3/`](example-v3)).
 
-The examples below use SvelteKit 2's `platform.env`. SvelteKit 3's `adapter-cloudflare` (8.0.0-next.7 and later) no longer provides `event.platform`: read bindings with `import { env } from 'cloudflare:workers'` instead, as [`example-v3/`](example-v3) does. The plugin's dev-registry wiring works the same either way.
+The examples below use SvelteKit 2's `platform.env`. SvelteKit 3's `adapter-cloudflare` (8.x) no longer provides `event.platform`: read bindings with `import { env } from 'cloudflare:workers'` instead, as [`example-v3/`](example-v3) does. The plugin's dev-registry wiring works the same either way.
 
 **Build mode:** SvelteKit's `adapter-cloudflare` generates `_worker.js` with only a default export (the fetch handler). Cloudflare Workers requires class-based bindings (Durable Objects, Workflows, `WorkerEntrypoint`, etc.) to be **named exports**, and non-fetch handlers (`scheduled`, `queue`, `email`, …) to be **methods on the default export**. This plugin post-processes the build output to merge both kinds onto SvelteKit's worker.
 
@@ -63,16 +63,46 @@ Point `adapter-cloudflare`'s platform proxy at the generated `.platform-proxy-wr
 ```javascript
 // svelte.config.js
 import adapter from '@sveltejs/adapter-cloudflare';
+import { fileURLToPath } from 'node:url';
 
 export default {
   kit: {
     adapter: adapter({
       platformProxy: {
-        configPath: '.platform-proxy-wrangler.jsonc'
+        configPath: '.platform-proxy-wrangler.jsonc',
+        persist: { path: fileURLToPath(new URL('.wrangler/state', import.meta.url)) }
       }
     })
   }
 };
+```
+
+> [!IMPORTANT]
+> **Always set `persist.path` to an absolute path**, as above. Leaving `persist` out is not enough: the default path is relative too. With wrangler 4.129 and later, every Workflow `create()` call in `vite dev` then fails with `Failed to wait for persisted workflow instance '…' deletion`, because miniflare rejects relative persist paths for Workflows.
+
+On SvelteKit 3, which no longer reads `svelte.config.js`, pass the same options to `sveltekit()` in `vite.config.ts`:
+
+```typescript
+// vite.config.ts (SvelteKit 3)
+import { sveltekit } from '@sveltejs/kit/vite';
+import adapter from '@sveltejs/adapter-cloudflare';
+import { addWorkerExports } from '@oselvar/sveltekit-add-worker-exports';
+import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+
+export default defineConfig({
+  plugins: [
+    await sveltekit({
+      adapter: adapter({
+        platformProxy: {
+          configPath: '.platform-proxy-wrangler.jsonc',
+          persist: { path: fileURLToPath(new URL('.wrangler/state', import.meta.url)) }
+        }
+      })
+    }),
+    addWorkerExports({ entryPoint: 'src/lib/server/index.ts' })
+  ]
+});
 ```
 
 The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads bindings, workflows, migrations, and compatibility settings from it. It overrides only the `main` entry point to point at your source entry.
@@ -92,6 +122,8 @@ export const POST: RequestHandler = async ({ params, request, platform }) => {
 ```
 
 The sidecar runs the real `WorkflowEntrypoint` class; calls reach it via the `script_name` rewrite in the platform-proxy config. This requires `wrangler >= 4.98.0` ([cloudflare/workers-sdk#13863](https://github.com/cloudflare/workers-sdk/pull/13863)).
+
+If `create()` fails in dev with `Failed to wait for persisted workflow instance '…' deletion`, your `platformProxy.persist.path` is missing or relative. Set it to an absolute path, as shown in [Usage](#usage).
 
 ### Testing the production build locally
 

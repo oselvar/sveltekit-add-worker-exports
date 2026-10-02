@@ -10,3 +10,5 @@ approveBuilds: esbuild
 minimumReleaseAgeExclude:
   - miniflare@4.20260603.0
   - wrangler@4.98.0
+  - '@sveltejs/kit@3.0.0'
+  - '@sveltejs/adapter-cloudflare@8.0.0'
