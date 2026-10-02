@@ -77,7 +77,33 @@ export default {
 };
 ```
 
-The `persist` path must be absolute. With wrangler 4.129 and later (miniflare 5), Workflow calls from the platform proxy fail with `Failed to wait for persisted workflow instance … deletion` when it is relative, and the default is relative too.
+> [!IMPORTANT]
+> **Always set `persist.path` to an absolute path**, as above. Leaving `persist` out is not enough: the default path is relative too. With wrangler 4.129 and later, every Workflow `create()` call in `vite dev` then fails with `Failed to wait for persisted workflow instance '…' deletion`, because miniflare rejects relative persist paths for Workflows.
+
+On SvelteKit 3, which no longer reads `svelte.config.js`, pass the same options to `sveltekit()` in `vite.config.ts`:
+
+```typescript
+// vite.config.ts (SvelteKit 3)
+import { sveltekit } from '@sveltejs/kit/vite';
+import adapter from '@sveltejs/adapter-cloudflare';
+import { addWorkerExports } from '@oselvar/sveltekit-add-worker-exports';
+import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+
+export default defineConfig({
+  plugins: [
+    await sveltekit({
+      adapter: adapter({
+        platformProxy: {
+          configPath: '.platform-proxy-wrangler.jsonc',
+          persist: { path: fileURLToPath(new URL('.wrangler/state', import.meta.url)) }
+        }
+      })
+    }),
+    addWorkerExports({ entryPoint: 'src/lib/server/index.ts' })
+  ]
+});
+```
 
 The plugin auto-discovers your `wrangler.jsonc` (or `wrangler.toml`) and reads bindings, workflows, migrations, and compatibility settings from it. It overrides only the `main` entry point to point at your source entry.
 
@@ -96,6 +122,8 @@ export const POST: RequestHandler = async ({ params, request, platform }) => {
 ```
 
 The sidecar runs the real `WorkflowEntrypoint` class; calls reach it via the `script_name` rewrite in the platform-proxy config. This requires `wrangler >= 4.98.0` ([cloudflare/workers-sdk#13863](https://github.com/cloudflare/workers-sdk/pull/13863)).
+
+If `create()` fails in dev with `Failed to wait for persisted workflow instance '…' deletion`, your `platformProxy.persist.path` is missing or relative. Set it to an absolute path, as shown in [Usage](#usage).
 
 ### Testing the production build locally
 
