@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import adapter from '@sveltejs/adapter-cloudflare';
 import { addWorkerExports } from '@oselvar/sveltekit-add-worker-exports';
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 
 // SvelteKit v3 no longer reads svelte.config.js — kit configuration is passed
 // directly to the `sveltekit(...)` plugin, which is now async.
@@ -11,7 +12,9 @@ export default defineConfig({
 			adapter: adapter({
 				platformProxy: {
 					configPath: '.platform-proxy-wrangler.jsonc',
-					persist: { path: '.wrangler/state' }
+					// Must be absolute: miniflare 5 rejects Workflow calls when the persist
+					// path is relative ("Invalid workflow name").
+					persist: { path: fileURLToPath(new URL('.wrangler/state', import.meta.url)) }
 				}
 			})
 		}),
