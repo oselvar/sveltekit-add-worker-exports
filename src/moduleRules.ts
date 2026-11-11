@@ -23,13 +23,34 @@
 
 import type { Plugin as EsbuildPlugin, OnLoadResult } from 'esbuild';
 import { readFile } from 'node:fs/promises';
-import {
-	compileModuleRules,
-	globsToRegExps,
-	testRegExps,
-	type ModuleRule,
-	type ModuleRuleType
-} from 'miniflare';
+import { compileModuleRules, globsToRegExps, testRegExps } from 'miniflare';
+
+/**
+ * Declared here rather than imported: miniflare 4 calls these `ModuleRuleType`
+ * / `ModuleRule`, miniflare 5 renamed them to `V4ModuleRuleType` /
+ * `V4ModuleRule`. The shape is identical in both, so this type-checks against
+ * whichever miniflare the consumer has.
+ */
+export type ModuleRuleType =
+	| 'ESModule'
+	| 'CommonJS'
+	| 'Text'
+	| 'Data'
+	| 'CompiledWasm'
+	| 'PythonModule'
+	| 'PythonRequirement';
+
+/** A module rule in miniflare's shape. */
+export interface ModuleRule {
+	type: ModuleRuleType;
+	include: string[];
+	fallthrough?: boolean;
+}
+
+interface CompiledModuleRule {
+	type: ModuleRuleType;
+	include: ReturnType<typeof globsToRegExps>;
+}
 
 /** A module rule as it appears in wrangler config (miniflare uses `include`). */
 export interface WranglerRule {
@@ -73,7 +94,11 @@ export function createModuleRulesPlugin(userRules: ModuleRule[]): EsbuildPlugin 
 	// JS rules are dropped from the match loop — esbuild's default handling is
 	// exactly their meaning — but they still participate in fallthrough
 	// finalisation above, like in wrangler.
-	const kept = compileModuleRules(allRules).filter((rule) => !isJavaScriptRuleType(rule.type));
+	// The cast pins `type` to our `ModuleRuleType`: miniflare 4 declares it as
+	// a `z.infer<…>` that TypeScript 7 doesn't narrow to the string union.
+	const kept = (compileModuleRules(allRules) as CompiledModuleRule[]).filter(
+		(rule) => !isJavaScriptRuleType(rule.type)
+	);
 
 	// Recompute which rules `compileModuleRules` dropped, so files matching
 	// only a shadowed rule get wrangler's error instead of esbuild's opaque
