@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.2](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.2.1...v2.2.2) (2026-11-11)
+
+### Bug Fixes
+
+* don't depend on miniflare's removed getNodeCompat ([a971798](https://github.com/oselvar/sveltekit-add-worker-exports/commit/a9717984a28bf96011906fa794df08d7b5e71047))
+
 ## [2.2.1](https://github.com/oselvar/sveltekit-add-worker-exports/compare/v2.2.0...v2.2.1) (2026-09-25)
 
 ### Bug Fixes
