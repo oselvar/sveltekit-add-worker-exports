@@ -344,6 +344,17 @@ The plugin reads your wrangler config, creates a temporary config with `main` po
 - Same WebSocket protocol as production
 - Fully typed Durable Object bindings (see below)
 
+### Caveat: shared modules load twice
+
+Your `entryPoint` is bundled separately from SvelteKit, so a module that both your entry and your routes import (say `$lib/server/db.ts`) gets two copies, each with its own module-level state:
+
+- **Build:** esbuild inlines one copy into `_extra_exports.js` and SvelteKit's server build inlines another. Both end up in the same deployed Worker, as two separate module instances.
+- **Dev:** your Durable Objects and Workflows run in the wrangler sidecar, a separate workerd process. SvelteKit runs in Vite's dev server, so the two sides share nothing in memory.
+
+Most of the time this doesn't matter. It does if you rely on a module-level singleton being the same object on both sides, such as a cache, a registry or a client initialised in one place. It also matters for `instanceof` checks against a class from the other copy, and for the extra startup cost and bundle size of the duplicate code. Pass data between the two sides through bindings (DO stubs, Workflow params, KV, D1, …), not through shared module state.
+
+This is inherent in adding exports from outside SvelteKit's build. The upstream fix in [sveltejs/kit#17708](https://github.com/sveltejs/kit/pull/17708) builds both into one module graph instead. See [When this plugin can be retired](#when-this-plugin-can-be-retired).
+
 ### Generating typed bindings
 
 The dev plugin runs the sidecar from a derived `.dev-worker-wrangler.jsonc`: your wrangler config with `main` pointing to your source entry point and `assets` removed. Use it to generate fully generic Cloudflare types:
@@ -376,15 +387,30 @@ SvelteKit's adapter-cloudflare does not support named exports from the worker en
 
 ## When this plugin can be retired
 
-This plugin is a stopgap. The single blocker for retirement is [sveltejs/kit#15627](https://github.com/sveltejs/kit/pull/15627) — which replaces `adapter-cloudflare`'s custom build with `@cloudflare/vite-plugin`. Open as of writing. Closes [#1712](https://github.com/sveltejs/kit/issues/1712), [#10496](https://github.com/sveltejs/kit/issues/10496), [#13692](https://github.com/sveltejs/kit/issues/13692), [#2963](https://github.com/sveltejs/kit/issues/2963), [#13300](https://github.com/sveltejs/kit/issues/13300), [#1519](https://github.com/sveltejs/kit/issues/1519).
+This plugin is a stopgap. SvelteKit is adding native support in two stacked PRs by a SvelteKit maintainer, both open drafts as of November 2026:
 
-Once that PR lands, `@cloudflare/vite-plugin` handles everything this plugin does, natively:
+- [sveltejs/kit#17707](https://github.com/sveltejs/kit/pull/17707) runs `vite dev` in workerd with `@cloudflare/vite-plugin` v2.
+- [sveltejs/kit#17708](https://github.com/sveltejs/kit/pull/17708) builds on it. It lets `entrypoint` in `cloudflare.config.ts` point at your own Worker, which exports your classes and calls SvelteKit's `fetch`. It closes [#1712](https://github.com/sveltejs/kit/issues/1712), [#10496](https://github.com/sveltejs/kit/issues/10496) and [#13692](https://github.com/sveltejs/kit/issues/13692).
 
-- **Build:** the plugin bundles a single worker entry that exports `default` + named classes directly — no `_worker.js` post-processing, no second esbuild pass to merge exports.
-- **Dev:** Durable Objects and Workflows run in the same worker as SvelteKit on real workerd, hot-reloaded — no sidecar via `unstable_startWorker`, no platform-proxy `script_name` rewrite, no separate WebSocket port, no dev registry routing.
-- **Types:** `wrangler types` resolves typed bindings (`DurableObjectNamespace<MyDO>`) from the user entry, no `.dev-worker-wrangler.jsonc` indirection.
+```ts
+// src/worker.ts (sveltejs/kit#17708)
+import { DurableObject } from 'cloudflare:workers';
+import { fetch } from '@sveltejs/adapter-cloudflare/worker';
 
-Side note: [cloudflare/workers-sdk#14013](https://github.com/cloudflare/workers-sdk/pull/14013) introduces an experimental `cloudflare.config.ts` flow (typed `exports` API) where the Durable Object branch currently throws `"Durable Object exports are not currently supported."` (see [`convert.ts`](https://github.com/cloudflare/workers-sdk/blob/main/packages/config/src/convert.ts)) and Workflows are commented out. This is a separate, opt-in config surface — the standard `wrangler.jsonc` path that kit#15627 uses already supports DO and Workflow named exports, so this limitation does **not** gate retirement.
+export class Counter extends DurableObject {}
+
+export default { fetch };
+```
+
+They replace the earlier [#15627](https://github.com/sveltejs/kit/pull/15627) and [#17666](https://github.com/sveltejs/kit/pull/17666), which are both closed.
+
+Once they land, SvelteKit handles everything this plugin does, natively:
+
+- **Build:** your Worker and SvelteKit are built together into one module graph. There's no `_worker.js` post-processing and no second esbuild pass, so shared modules load once (see [Caveat: shared modules load twice](#caveat-shared-modules-load-twice)).
+- **Dev:** Durable Objects and Workflows run in the same Worker as SvelteKit on workerd. There's no sidecar via `unstable_startWorker`, no platform-proxy `script_name` rewrite, no separate WebSocket port and no dev registry routing.
+- **Types:** typed bindings (`DurableObjectNamespace<MyDO>`) come from your own entry, with no `.dev-worker-wrangler.jsonc` indirection.
+
+Migrating should be small, because your `entryPoint` already exports the classes. Add `export default { fetch }` (merging in any `scheduled`/`queue`/… handlers you export today), point `entrypoint` at it, and remove `addWorkerExports()`.
 
 ## License
 
