@@ -2,8 +2,11 @@ import { build } from 'esbuild';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readModuleRules } from './index';
-import { createModuleRulesPlugin, WRANGLER_DEFAULT_MODULE_RULES } from './moduleRules';
-import type { ModuleRule } from 'miniflare';
+import {
+	createModuleRulesPlugin,
+	WRANGLER_DEFAULT_MODULE_RULES,
+	type ModuleRule
+} from './moduleRules';
 
 const fixturesDir = join(import.meta.dirname, '__fixtures__', 'moduleRules');
 

@@ -29,21 +29,23 @@ import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
-import {
-	getNodeCompat,
-	WorkerdStructuredLog,
-	type ModuleRule,
-	type NodeJSCompatMode
-} from 'miniflare';
+import type { WorkerdStructuredLog } from 'miniflare';
 import { parse as parseToml } from 'smol-toml';
 import type { Plugin } from 'vite';
 import type { Unstable_Config } from 'wrangler';
-import { createModuleRulesPlugin, toModuleRule, type WranglerRule } from './moduleRules.js';
+import {
+	createModuleRulesPlugin,
+	toModuleRule,
+	type ModuleRule,
+	type WranglerRule
+} from './moduleRules.js';
 
 export {
 	createModuleRulesPlugin,
 	toModuleRule,
 	WRANGLER_DEFAULT_MODULE_RULES,
+	type ModuleRule,
+	type ModuleRuleType,
 	type WranglerRule
 } from './moduleRules.js';
 
@@ -598,15 +600,43 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
+export type NodeJSCompatMode = 'als' | 'v1' | 'v2' | null;
+
+/** From this compatibility date, `nodejs_compat` is on unless `no_nodejs_compat` is set. */
+const NODEJS_COMPAT_DEFAULT_ON_DATE = '2026-08-04';
+/** From this compatibility date, `nodejs_compat` means v2. */
+const NODEJS_COMPAT_V2_SWITCH_OVER_DATE = '2024-09-23';
+
 /**
- * wrangler's `unstable_startWorker` does not derive this from the config
- * flags automatically — without it, wrangler falls back to the legacy
- * nodejs compat plugin and warns about `node:*` imports even when
- * `nodejs_compat` is enabled.
+ * Resolves the Node.js compat mode the way wrangler's own `getNodeCompat`
+ * does (workers-utils `node-compat.ts` / `compatibility-date.ts`).
+ *
+ * The dev sidecar passes it to `unstable_startWorker` as the
+ * `build.nodejsCompatMode` hook. wrangler before 4.113 doesn't derive the
+ * mode itself and falls back to the legacy nodejs compat plugin, which warns
+ * about `node:*` imports even with `nodejs_compat` enabled.
+ *
+ * This used to call miniflare's `getNodeCompat`, but miniflare
+ * 5.20261103.0-beta (shipped with wrangler 4.157+) no longer exports it, and
+ * importing a missing named export from miniflare (a CommonJS module) is a
+ * SyntaxError that stops the plugin from loading. miniflare 4's copy also
+ * predates the default-on date.
+ *
+ * Exported for tests.
  */
-function getNodejsCompatMode(
-	compatibilityDate: string | undefined,
+export function getNodejsCompatMode(
+	compatibilityDate = '2000-01-01',
 	compatibilityFlags: readonly string[] = []
 ): NodeJSCompatMode {
-	return getNodeCompat(compatibilityDate, [...compatibilityFlags]).mode;
+	const has = (flag: string) => compatibilityFlags.includes(flag);
+	const isDefaultOn = compatibilityDate >= NODEJS_COMPAT_DEFAULT_ON_DATE;
+	const isV1Enabled = has('nodejs_compat') || (isDefaultOn && !has('no_nodejs_compat'));
+	const isV2Enabled =
+		has('nodejs_compat_v2') ||
+		(!has('no_nodejs_compat_v2') &&
+			(isDefaultOn || (isV1Enabled && compatibilityDate >= NODEJS_COMPAT_V2_SWITCH_OVER_DATE)));
+	if (isV2Enabled) return 'v2';
+	if (isV1Enabled) return 'v1';
+	if (has('nodejs_als')) return 'als';
+	return null;
 }
